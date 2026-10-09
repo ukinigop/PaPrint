@@ -1,0 +1,14 @@
+{
+  "name": "paprint",
+  "private": true,
+  "scripts": {
+    "mobile": "npm --prefix mobile start",
+    "server": "npm --prefix server run dev",
+    "test": "npm --prefix server test",
+    "typecheck": "npm --prefix mobile run typecheck",
+    "demo": "npm --prefix server run demo"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.9"
+  }
+}
