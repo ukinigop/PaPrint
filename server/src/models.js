@@ -68,7 +68,7 @@ export const Device = model(
 );
 export async function seedShops() {
   if (await Shop.countDocuments()) return;
-  await Shop.insertMany([
+  const shops = [
     {
       name: "ParaPrint Naga",
       address: "Ateneo Avenue, Naga City",
@@ -102,5 +102,12 @@ export async function seedShops() {
       monoRate: 3,
       colorRate: 11,
     },
-  ]);
+  ];
+  await Shop.bulkWrite(shops.map((shop, index) => ({
+    updateOne: {
+      filter: { _id: new mongoose.Types.ObjectId(`70617072696e74000000000${index + 1}`) },
+      update: { $setOnInsert: shop },
+      upsert: true,
+    },
+  })));
 }

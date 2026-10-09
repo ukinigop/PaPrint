@@ -9,6 +9,9 @@ import request from "supertest";
 import { PDFDocument } from "pdf-lib";
 import { randomUUID } from "node:crypto";
 import { createApp } from "../src/app.js";
+import { gridFsStorage } from "../src/storage.js";
+import express from "express";
+import hostedHandler from "../../api/index.js";
 import { Order, Upload, Shop, seedShops } from "../src/models.js";
 
 let mongo,
@@ -255,4 +258,112 @@ test("ready state creates durable pickup notification and sends exactly one push
     .body[0];
   assert.equal(collected.status, "Collected");
   assert.ok(collected.readyAt);
+});
+
+test("hosted PDFs survive API recreation in private GridFS storage", async () => {
+  const settings = {
+    secret: "test-secret-with-at-least-32-characters",
+    shopPin: "2468",
+    fileStorage: gridFsStorage(),
+    maxUploadBytes: 3 * 1024 * 1024,
+    trustProxy: true,
+  };
+  const hosted = createApp(settings);
+  const config = await request(hosted).get("/api/config");
+  assert.equal(config.body.maxUploadBytes, 3 * 1024 * 1024);
+  const uploaded = await request(hosted)
+    .post("/api/uploads")
+    .set(auth(customer))
+    .attach("files", pdf, "hosted.pdf");
+  assert.equal(uploaded.status, 201);
+  const hostedFile = uploaded.body[0];
+  const booked = await request(hosted)
+    .post("/api/orders")
+    .set(auth(customer))
+    .send({
+      ...payload(),
+      fileIds: [hostedFile._id],
+      requestKey: randomUUID(),
+    });
+  assert.equal(booked.status, 201);
+  const recreated = createApp(settings);
+  const route = `/api/orders/${booked.body._id}/files/${hostedFile._id}`;
+  const downloaded = await request(recreated).get(route).set(auth(shopToken));
+  assert.equal(downloaded.status, 200);
+  assert.deepEqual(downloaded.body, pdf);
+  assert.equal(
+    (await request(recreated).get(route).set(auth(other))).status,
+    404,
+  );
+  assert.equal((await request(recreated).get(route)).status, 401);
+});
+
+test("hosted upload limit rejects large PDFs before writing to storage", async () => {
+  let writes = 0;
+  const limited = createApp({
+    secret: "test-secret-with-at-least-32-characters",
+    shopPin: "2468",
+    maxUploadBytes: 10,
+    fileStorage: {
+      put() {
+        writes++;
+      },
+      remove() {},
+      read() {},
+    },
+  });
+  const result = await request(limited)
+    .post("/api/uploads")
+    .set(auth(customer))
+    .attach("files", pdf, "large.pdf");
+  assert.equal(result.status, 400);
+  assert.equal(writes, 0);
+});
+
+test("Vercel entry point connects to MongoDB and serves API routes", async () => {
+  const original = {
+    MONGODB_URI: process.env.MONGODB_URI,
+    JWT_SECRET: process.env.JWT_SECRET,
+    SHOP_PIN: process.env.SHOP_PIN,
+  };
+  Object.assign(process.env, {
+    MONGODB_URI: mongo.getUri(),
+    JWT_SECRET: "test-secret-with-at-least-32-characters",
+    SHOP_PIN: "2468",
+  });
+  try {
+    const entry = express();
+    entry.use(hostedHandler);
+    await request(entry).get("/api/health").expect(200, { ok: true });
+    const config = await request(entry).get("/api/config").expect(200);
+    assert.equal(config.body.maxUploadBytes, 3 * 1024 * 1024);
+    const shops = await request(entry)
+      .get("/api/shops")
+      .set(auth(customer))
+      .expect(200);
+    assert.equal(shops.body.length, 3);
+    const uploaded = await request(entry)
+      .post("/api/uploads")
+      .set(auth(customer))
+      .attach("files", pdf, "function-upload.pdf")
+      .expect(201);
+    const booked = await request(entry)
+      .post("/api/orders")
+      .set(auth(customer))
+      .send({
+        ...payload(),
+        fileIds: [uploaded.body[0]._id],
+        requestKey: randomUUID(),
+      })
+      .expect(201);
+    await request(entry)
+      .get(`/api/orders/${booked.body._id}/files/${uploaded.body[0]._id}`)
+      .set(auth(shopToken))
+      .expect(200);
+  } finally {
+    for (const [name, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });

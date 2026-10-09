@@ -1,5 +1,7 @@
 # PaPrint
 
+For hosted deployment, follow [the Vercel setup guide](docs/VERCEL_DEPLOYMENT.md). The repository root is configured to deploy the web app and API together, using MongoDB Atlas/GridFS for private PDF storage. Hosted uploads support 3 MB per PDF; local demo uploads support 15 MB.
+
 A mobile printing-booking prototype built with React Native + Expo, Express, Node.js, and MongoDB. The UI follows the supplied medium-fidelity wireframe: blue accents, Home / Orders / Shops / Profile tabs, nearby shops, and an active-order card.
 
 ## Implemented MVP

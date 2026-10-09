@@ -6,9 +6,26 @@
     "server": "npm --prefix server run dev",
     "test": "npm --prefix server test",
     "typecheck": "npm --prefix mobile run typecheck",
-    "demo": "npm --prefix server run demo"
+    "demo": "npm --prefix server run demo",
+    "build": "npm --prefix mobile run build:web"
   },
   "devDependencies": {
     "prettier": "^3.9.9"
+  },
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.0.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.18.0",
+    "multer": "^2.0.2",
+    "pdf-lib": "^1.17.1",
+    "zod": "^4.1.5"
   }
 }

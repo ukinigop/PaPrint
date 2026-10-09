@@ -166,6 +166,7 @@ function Empty({
 
 function AppContent() {
   const [tab, setTab] = useState<Tab>("Home");
+  const [maxUploadBytes, setMaxUploadBytes] = useState(15 * 1024 * 1024);
   const [shops, setShops] = useState<Shop[]>([]),
     [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true),
@@ -229,12 +230,14 @@ function AppContent() {
     if (polling.current) return;
     polling.current = true;
     try {
-      const [shopList, orderList] = await Promise.all([
+      const [shopList, orderList, config] = await Promise.all([
         api.request<Shop[]>("/shops"),
         api.request<Order[]>("/orders"),
+        api.request<{ maxUploadBytes: number }>("/config"),
       ]);
       setShops(shopList);
       setOrders(orderList);
+      setMaxUploadBytes(config.maxUploadBytes);
       await notifyReady(orderList);
       if (token)
         setMerchantOrders(await api.request<Order[]>("/orders", {}, token));
@@ -266,7 +269,10 @@ function AppContent() {
     }
   }
   useEffect(() => {
-    void connect();
+    const timer = setTimeout(() => void connect(), 0);
+    return () => clearTimeout(timer);
+    // Initialize the saved server/device session once, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (Platform.OS === "web") return;
@@ -311,6 +317,8 @@ function AppContent() {
       clearInterval(timer);
       sub.remove();
     };
+    // The poller changes only when connectivity or merchant identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, shopToken]);
   async function run(action: () => Promise<void>) {
     if (actionLock.current) return;
@@ -399,10 +407,16 @@ function AppContent() {
     if (result.canceled) return;
     if (result.assets.length + files.length > 5)
       throw new Error("Choose up to 5 PDFs per order.");
-    if (result.assets.some((f) => (f.size || 0) > 15 * 1024 * 1024))
-      throw new Error("Each PDF must be 15 MB or smaller.");
-    const uploaded = await api.uploadFiles(result.assets);
-    setFiles((previous) => [...previous, ...uploaded]);
+    if (result.assets.some((f) => (f.size || 0) > maxUploadBytes))
+      throw new Error(
+        `Each PDF must be ${maxUploadBytes / 1024 / 1024} MB or smaller.`,
+      );
+    // One file per request fits serverless payload limits. Keep each success
+    // visible if a later file fails, so customers can retry just that file.
+    for (const asset of result.assets) {
+      const uploaded = await api.uploadFiles([asset]);
+      setFiles((previous) => [...previous, ...uploaded]);
+    }
   }
   async function review() {
     setQuote(
@@ -627,6 +641,8 @@ function AppContent() {
               key={f.upload}
               disabled={busy}
               onPress={() =>
+                // This lock is read only when the press event runs, never in render.
+                // eslint-disable-next-line react-hooks/refs
                 void run(() =>
                   api.openPrintFile(order._id, f.upload, shopToken),
                 )
@@ -667,6 +683,8 @@ function AppContent() {
                   : "Confirm collected"
             }
             loading={busy}
+            // The handler runs after a press; the render helper does not read refs.
+            // eslint-disable-next-line react-hooks/refs
             onPress={() => void run(() => advance(order))}
           />
         )}
@@ -864,7 +882,8 @@ function AppContent() {
                         : "Your next print starts here"}
                     </Text>
                     <Text style={s.muted}>
-                      Tap to choose PDFs · Up to 5 files · 15 MB each
+                      Tap to choose PDFs · Up to 5 files ·{" "}
+                      {maxUploadBytes / 1024 / 1024} MB each
                     </Text>
                   </Pressable>
                   {files.map((f) => (

@@ -6,8 +6,7 @@ import jwt from "jsonwebtoken";
 import multer from "multer";
 import { PDFDocument } from "pdf-lib";
 import { randomUUID, randomInt } from "node:crypto";
-import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
-import path from "node:path";
+import { diskStorage } from "./storage.js";
 import { Shop, Upload, Order, Device } from "./models.js";
 import { bookingSchema, price, nextStatus } from "./domain.js";
 
@@ -16,10 +15,14 @@ export function createApp({
   secret,
   shopPin,
   uploadDir,
+  fileStorage = diskStorage(uploadDir),
+  maxUploadBytes = 15 * 1024 * 1024,
+  trustProxy = false,
   pushSender = defaultPushSender,
   corsOrigin = "http://localhost:8081",
 }) {
   const app = express();
+  if (trustProxy) app.set("trust proxy", 1);
   app.use(
     helmet(),
     cors({ origin: corsOrigin }),
@@ -47,6 +50,9 @@ export function createApp({
       ? next()
       : next(fail(403, "Shop access required."));
   app.get("/api/health", (req, res) => res.json({ ok: true }));
+  app.get("/api/config", (req, res) =>
+    res.json({ maxUploadBytes, maxFiles: 5 }),
+  );
   app.post(
     "/api/session",
     rateLimit({ windowMs: 60_000, limit: 10 }),
@@ -82,7 +88,7 @@ export function createApp({
   );
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 15 * 1024 * 1024, files: 5 },
+    limits: { fileSize: maxUploadBytes, files: 5 },
   });
   app.post(
     "/api/uploads",
@@ -91,6 +97,11 @@ export function createApp({
     upload.array("files", 5),
     async (req, res) => {
       if (!req.files?.length) throw fail(400, "Choose at least one PDF file.");
+      if (req.files.reduce((sum, file) => sum + file.size, 0) > maxUploadBytes)
+        throw fail(
+          400,
+          "Upload files one at a time so the request stays within the upload limit.",
+        );
       const prepared = [];
       for (const file of req.files) {
         if (
@@ -106,13 +117,11 @@ export function createApp({
           throw fail(400, "One PDF cannot be read. Use a valid, unlocked PDF.");
         }
       }
-      await mkdir(uploadDir, { recursive: true });
       const written = [],
         records = [];
       try {
         for (const { file, pages } of prepared) {
-          const location = path.join(uploadDir, `${randomUUID()}.pdf`);
-          await writeFile(location, file.buffer);
+          const location = await fileStorage.put(file.buffer);
           written.push(location);
           records.push(
             await Upload.create({
@@ -125,20 +134,20 @@ export function createApp({
           );
         }
       } catch (error) {
-        await Promise.all(written.map((p) => unlink(p).catch(() => {})));
+        await Promise.all(
+          written.map((p) => fileStorage.remove(p).catch(() => {})),
+        );
         await Upload.deleteMany({ _id: { $in: records.map((r) => r.id) } });
         throw error;
       }
-      res
-        .status(201)
-        .json(
-          records.map((f) => ({
-            _id: f.id,
-            name: f.name,
-            pages: f.pages,
-            size: f.size,
-          })),
-        );
+      res.status(201).json(
+        records.map((f) => ({
+          _id: f.id,
+          name: f.name,
+          pages: f.pages,
+          size: f.size,
+        })),
+      );
     },
   );
   async function prepare(req) {
@@ -223,7 +232,7 @@ export function createApp({
       "Content-Disposition",
       `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
     );
-    res.send(await readFile(file.path));
+    res.send(await fileStorage.read(file.path));
   });
   app.patch("/api/orders/:id/status", auth, merchant, async (req, res) => {
     const order = await Order.findOne({
@@ -262,16 +271,14 @@ export function createApp({
     const status =
       error instanceof multer.MulterError ? 400 : error.status || 500;
     if (status === 500) console.error(error);
-    res
-      .status(status)
-      .json({
-        message:
-          error instanceof multer.MulterError
-            ? "Upload up to 5 PDFs, each no larger than 15 MB."
-            : status === 500
-              ? "Something went wrong. Please try again."
-              : error.message,
-      });
+    res.status(status).json({
+      message:
+        error instanceof multer.MulterError
+          ? `Upload up to 5 PDFs, each no larger than ${maxUploadBytes / 1024 / 1024} MB.`
+          : status === 500
+            ? "Something went wrong. Please try again."
+            : error.message,
+    });
   });
   return app;
 }

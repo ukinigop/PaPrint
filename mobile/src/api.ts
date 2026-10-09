@@ -2,7 +2,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import type { DocumentPickerAsset } from "expo-document-picker";
 import type { PrintFile } from "./types";
-export let baseUrl = process.env.EXPO_PUBLIC_API_URL || "http://localhost:4000";
+export let baseUrl =
+  process.env.EXPO_PUBLIC_API_URL ||
+  (Platform.OS === "web" &&
+  typeof window !== "undefined" &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1"
+    ? window.location.origin
+    : "http://localhost:4000");
 let token = "";
 export async function initialize() {
   const stored = await AsyncStorage.multiGet([

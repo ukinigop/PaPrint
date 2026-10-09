@@ -1,0 +1,10 @@
+**/node_modules
+**/.expo
+**/dist
+**/uploads
+**/.env
+**/.env.local
+**/.env*.local
+tmp
+docs/mobile-preview.png
+server/test
