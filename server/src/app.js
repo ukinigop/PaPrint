@@ -7,7 +7,9 @@ import multer from "multer";
 import { PDFDocument } from "pdf-lib";
 import { randomUUID, randomInt } from "node:crypto";
 import { diskStorage } from "./storage.js";
-import { Shop, Upload, Order, Device } from "./models.js";
+import { Shop, Upload, Order, Device, AccountSession } from "./models.js";
+import { installAccounts } from "./accounts.js";
+import { installWorkspace } from "./workspace.js";
 import { bookingSchema, price, nextStatus } from "./domain.js";
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -30,12 +32,23 @@ export function createApp({
   );
   app.use("/api", rateLimit({ windowMs: 60_000, limit: 180 }));
   const sign = (data) => jwt.sign(data, secret, { expiresIn: "30d" });
-  const auth = (req, res, next) => {
+  const auth = async (req, res, next) => {
     try {
       req.user = jwt.verify(
         (req.headers.authorization || "").replace(/^Bearer /, ""),
         secret,
+        { algorithms: ["HS256"] },
       );
+      if (
+        req.user.account &&
+        (!req.user.sid ||
+          !(await AccountSession.exists({
+            _id: req.user.sid,
+            user: req.user.id,
+            expiresAt: { $gt: new Date() },
+          })))
+      )
+        throw new Error("Session ended");
       next();
     } catch {
       next(fail(401, "Your session expired. Please sign in again."));
@@ -49,6 +62,13 @@ export function createApp({
     req.user.role === "shop"
       ? next()
       : next(fail(403, "Shop access required."));
+  installAccounts(app, { secret, auth, customer });
+  installWorkspace(app, {
+    auth,
+    fileStorage,
+    maxUploadBytes,
+    notifyPickup: (order) => sendPickup(order, pushSender),
+  });
   app.get("/api/health", (req, res) => res.json({ ok: true }));
   app.get("/api/config", (req, res) =>
     res.json({ maxUploadBytes, maxFiles: 5 }),
@@ -65,6 +85,9 @@ export function createApp({
           secret,
           { ignoreExpiration: true },
         );
+        // Guest renewal must never turn an expired/revoked account token into a guest with that account's ID.
+        if (previous.account)
+          return res.status(401).json({ message: "Please sign in again." });
         if (previous.role === "customer") id = previous.id;
       } catch {
         /* A new device gets a fresh identity. */
@@ -84,7 +107,11 @@ export function createApp({
     },
   );
   app.get("/api/shops", auth, async (req, res) =>
-    res.json(await Shop.find().sort({ open: -1, rating: -1 })),
+    res.json(
+      await Shop.find({ registrationStatus: { $nin: ["draft", "submitted"] } })
+        .select("-documents -email -owner")
+        .sort({ open: -1, rating: -1 }),
+    ),
   );
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -157,6 +184,13 @@ export function createApp({
     const data = parsed.data;
     const shop = await Shop.findById(data.shopId);
     if (!shop) throw fail(404, "Shop not found.");
+    if (["draft", "submitted"].includes(shop.registrationStatus))
+      throw fail(409, "This shop is not accepting orders yet.");
+    if (data.paymentMethod === "gcash")
+      throw fail(
+        409,
+        "GCash payments are not connected yet. Choose pay on pickup.",
+      );
     if (!shop.open)
       throw fail(409, "This shop is closed. Please choose an open shop.");
     const files = await Upload.find({
@@ -172,10 +206,13 @@ export function createApp({
     res.json({ pages, amount });
   });
   app.post("/api/orders", auth, customer, async (req, res) => {
+    const valid = bookingSchema.safeParse(req.body);
+    if (!valid.success)
+      throw fail(400, "Check your shop, files, and printing settings.");
     const existing = await Order.findOne({
       customer: req.user.id,
-      requestKey: req.body.requestKey,
-    }).populate("shop");
+      requestKey: valid.data.requestKey,
+    }).populate({ path: "shop", select: "-documents -email -owner" });
     if (existing) return res.json(existing);
     const { data, shop, files, pages, amount } = await prepare(req);
     try {
@@ -193,16 +230,24 @@ export function createApp({
         requestKey: data.requestKey,
         pages,
         amount,
+        paymentMethod: data.paymentMethod,
         pickupCode: String(randomInt(100000, 1000000)),
       });
-      res.status(201).json(await order.populate("shop"));
+      res
+        .status(201)
+        .json(
+          await order.populate({
+            path: "shop",
+            select: "-documents -email -owner",
+          }),
+        );
     } catch (error) {
       if (error.code === 11000)
         return res.json(
           await Order.findOne({
             customer: req.user.id,
             requestKey: data.requestKey,
-          }).populate("shop"),
+          }).populate({ path: "shop", select: "-documents -email -owner" }),
         );
       throw error;
     }
@@ -212,7 +257,11 @@ export function createApp({
       req.user.role === "shop"
         ? { shop: req.user.id }
         : { customer: req.user.id };
-    res.json(await Order.find(filter).sort({ createdAt: -1 }).populate("shop"));
+    res.json(
+      await Order.find(filter)
+        .sort({ createdAt: -1 })
+        .populate({ path: "shop", select: "-documents -email -owner" }),
+    );
   });
   app.get("/api/orders/:id/files/:fileId", auth, async (req, res) => {
     const order = await Order.findById(validId(req.params.id));
@@ -249,7 +298,7 @@ export function createApp({
       { _id: order.id, status: order.status },
       update,
       { new: true },
-    ).populate("shop");
+    ).populate({ path: "shop", select: "-documents -email -owner" });
     if (!changed) throw fail(409, "This order changed. Refresh and try again.");
     if (changed.readyAt && changed.pushState === "pending")
       await sendPickup(changed, pushSender);

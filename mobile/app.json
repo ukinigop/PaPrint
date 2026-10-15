@@ -23,7 +23,14 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-document-picker", "expo-notifications"],
+    "plugins": [
+      "expo-document-picker",
+      "expo-notifications",
+      "expo-font",
+      "expo-secure-store",
+      "expo-router",
+      "expo-image"
+    ],
     "scheme": "paprint"
   }
 }

@@ -12,7 +12,8 @@ import { createApp } from "../src/app.js";
 import { gridFsStorage } from "../src/storage.js";
 import express from "express";
 import hostedHandler from "../../api/index.js";
-import { Order, Upload, Shop, seedShops } from "../src/models.js";
+import { Order, Upload, Shop, User, seedShops } from "../src/models.js";
+import { seedDemoOwner, demoOwner } from "../src/demo-owner.js";
 
 let mongo,
   app,
@@ -366,4 +367,440 @@ test("Vercel entry point connects to MongoDB and serves API routes", async () =>
       else process.env[name] = value;
     }
   }
+});
+
+test("email accounts hash passwords, validate credentials, and persist preferences", async () => {
+  const email = `account-${randomUUID()}@example.test`;
+  const password = "A-test-password-1234";
+  await request(app)
+    .post("/api/auth/signup")
+    .send({ name: "Test Person", email, password: "short" })
+    .expect(400);
+  const created = await request(app)
+    .post("/api/auth/signup")
+    .send({ name: "Test Person", email, password })
+    .expect(201);
+  assert.equal(created.body.user.email, email);
+  assert.equal(created.body.passwordHash, undefined);
+  const stored = await User.findOne({ email }).select("+passwordHash");
+  assert.notEqual(stored.passwordHash, password);
+  assert.match(stored.passwordHash, /^[a-f0-9]{32}:[a-f0-9]{128}$/);
+  await request(app)
+    .post("/api/auth/signup")
+    .send({ name: "Duplicate", email: email.toUpperCase(), password })
+    .expect(409);
+  await request(app)
+    .post("/api/auth/login")
+    .send({ email, password: "wrong-password" })
+    .expect(401);
+  await request(app)
+    .post("/api/auth/login")
+    .send({ email: { $ne: null }, password })
+    .expect(401);
+  const login = await request(app)
+    .post("/api/auth/login")
+    .send({ email: ` ${email.toUpperCase()} `, password })
+    .expect(200);
+  assert.equal(login.body.user.id, created.body.user.id);
+  const edited = await request(app)
+    .patch("/api/auth/me")
+    .set(auth(login.body.token))
+    .send({ name: "Updated Name", defaultPaper: "Legal", reducedMotion: true })
+    .expect(200);
+  assert.equal(edited.body.reducedMotion, true);
+  assert.equal(edited.body.name, "Updated Name");
+  await request(app)
+    .patch("/api/auth/me")
+    .set(auth(login.body.token))
+    .send({ email: "someone@example.test" })
+    .expect(400);
+  await request(app).get("/api/auth/me").set(auth(customer)).expect(401);
+  const restored = await request(app)
+    .get("/api/auth/me")
+    .set(auth(created.body.token))
+    .expect(200);
+  assert.equal(restored.body.defaultPaper, "Legal");
+  assert.equal(restored.body.passwordHash, undefined);
+});
+
+test("account orders survive new logins, stay private, and revoked tokens cannot renew as guests", async () => {
+  const email = `owner-${randomUUID()}@example.test`;
+  const password = "Another-test-password-123";
+  const first = (
+    await request(app)
+      .post("/api/auth/signup")
+      .send({ name: "Account Owner", email, password })
+      .expect(201)
+  ).body;
+  const second = (
+    await request(app)
+      .post("/api/auth/login")
+      .send({ email, password })
+      .expect(200)
+  ).body;
+  const outsider = (
+    await request(app)
+      .post("/api/auth/signup")
+      .send({
+        name: "Other Account",
+        email: `other-${randomUUID()}@example.test`,
+        password,
+      })
+      .expect(201)
+  ).body;
+  const uploaded = await request(app)
+    .post("/api/uploads")
+    .set(auth(first.token))
+    .attach("files", pdf, "account-document.pdf")
+    .expect(201);
+  const fileId = uploaded.body[0]._id;
+  const booked = await request(app)
+    .post("/api/orders")
+    .set(auth(first.token))
+    .send({ ...payload(), fileIds: [fileId], requestKey: randomUUID() })
+    .expect(201);
+  const list = await request(app)
+    .get("/api/orders")
+    .set(auth(second.token))
+    .expect(200);
+  assert.equal(list.body[0]._id, booked.body._id);
+  await request(app)
+    .get(`/api/orders/${booked.body._id}/files/${fileId}`)
+    .set(auth(outsider.token))
+    .expect(404);
+  const outsiderList = await request(app)
+    .get("/api/orders")
+    .set(auth(outsider.token))
+    .expect(200);
+  assert.equal(outsiderList.body.length, 0);
+  await request(app)
+    .post("/api/auth/logout")
+    .set(auth(first.token))
+    .expect(200);
+  await request(app).get("/api/orders").set(auth(first.token)).expect(401);
+  await request(app).post("/api/session").set(auth(first.token)).expect(401);
+  await request(app).get("/api/orders").set(auth(second.token)).expect(200);
+  const jwt = (await import("jsonwebtoken")).default;
+  const claims = jwt.verify(
+    second.token,
+    "test-secret-with-at-least-32-characters",
+  );
+  const expired = jwt.sign(
+    { id: claims.id, role: "customer", account: true, sid: claims.sid },
+    "test-secret-with-at-least-32-characters",
+    { expiresIn: -1 },
+  );
+  await request(app).get("/api/orders").set(auth(expired)).expect(401);
+  await request(app).post("/api/session").set(auth(expired)).expect(401);
+});
+
+test("owner registrations stay private and cannot self-approve", async () => {
+  const signup = await request(app).post("/api/auth/signup").send({
+    name: "Shop Owner",
+    email: "owner-workspace@example.test",
+    password: "A-safe-preview-password",
+    accountType: "owner",
+    phone: "09123456789",
+  });
+  assert.equal(signup.status, 201);
+  const token = signup.body.token;
+  assert.equal(signup.body.user.accountType, "owner");
+  assert.equal(
+    (await request(app).get("/api/workspace").set(auth(customer))).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(app)
+        .patch("/api/auth/me")
+        .set(auth(token))
+        .send({ accountType: "owner" })
+    ).status,
+    400,
+  );
+  const draft = await request(app).put("/api/workspace").set(auth(token)).send({
+    name: "Private Test Prints",
+    representative: "Shop Owner",
+    address: "Sample Street, Naga City",
+    contact: "09123456789",
+    email: "shop@example.test",
+    hours: "8 AM–6 PM",
+    monoRate: 2,
+    colorRate: 8,
+  });
+  assert.equal(draft.status, 200);
+  assert.equal(draft.body.registrationStatus, "draft");
+  const shops = (await request(app).get("/api/shops").set(auth(customer))).body;
+  assert.equal(
+    shops.some((s) => s._id === draft.body._id),
+    false,
+  );
+  assert.equal(
+    (
+      await request(app)
+        .post("/api/workspace/submit")
+        .set(auth(token))
+        .send({ confirm: true })
+    ).status,
+    400,
+  );
+  const docs = await request(app)
+    .post("/api/workspace/documents")
+    .set(auth(token))
+    .attach("files", pdf, "permit.pdf")
+    .attach("files", pdf, "registration.pdf")
+    .attach("files", pdf, "owner-id.pdf");
+  assert.equal(docs.status, 201);
+  assert.equal(docs.body.documents.length, 3);
+  assert.equal(
+    docs.body.documents.some((d) => d.path),
+    false,
+  );
+  const submitted = await request(app)
+    .post("/api/workspace/submit")
+    .set(auth(token))
+    .send({ confirm: true });
+  assert.equal(submitted.status, 200);
+  assert.equal(submitted.body.registrationStatus, "submitted");
+  const another = (
+    await request(app).post("/api/auth/signup").send({
+      name: "Another Owner",
+      email: "another-owner@example.test",
+      password: "A-safe-preview-password",
+      accountType: "owner",
+    })
+  ).body;
+  assert.equal(
+    (await request(app).get("/api/workspace").set(auth(another.token))).body,
+    null,
+  );
+  const pending = await request(app)
+    .post("/api/orders")
+    .set(auth(customer))
+    .send({
+      shopId: draft.body._id,
+      fileIds: [file._id],
+      settings: {
+        paper: "A4",
+        color: "Black & white",
+        sides: "Single-sided",
+        copies: 1,
+      },
+      requestKey: randomUUID(),
+    });
+  assert.equal(pending.status, 409);
+  assert.equal(
+    (
+      await request(app)
+        .patch("/api/workspace/orders/" + order._id + "/status")
+        .set(auth(token))
+        .send({ status: "Printing" })
+    ).status,
+    403,
+  );
+});
+
+test("approved owners can act only on their shop orders and collect after payment", async () => {
+  const login = (
+    await request(app).post("/api/auth/login").send({
+      email: "owner-workspace@example.test",
+      password: "A-safe-preview-password",
+    })
+  ).body;
+  const owned = await Shop.findOne({ owner: login.user.id });
+  owned.registrationStatus = "approved";
+  owned.open = true;
+  await owned.save();
+  const another = (
+    await request(app).post("/api/auth/login").send({
+      email: "another-owner@example.test",
+      password: "A-safe-preview-password",
+    })
+  ).body;
+  const settings = {
+    paper: "A4",
+    color: "Black & white",
+    sides: "Single-sided",
+    copies: 1,
+    pageRange: "1",
+    finishing: "No binding",
+  };
+  const created = await request(app)
+    .post("/api/orders")
+    .set(auth(customer))
+    .send({
+      shopId: owned.id,
+      fileIds: [file._id],
+      settings,
+      requestKey: randomUUID(),
+      paymentMethod: "pickup",
+    });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.amount, 2);
+  assert.equal(created.body.pages, 1);
+  assert.equal(created.body.shop.documents, undefined);
+  assert.equal(
+    (await request(app).get("/api/workspace/orders").set(auth(login.token)))
+      .body.length,
+    1,
+  );
+  const base = "/api/workspace/orders/" + created.body._id;
+  assert.equal(
+    (
+      await request(app)
+        .get(base + "/files/" + file._id)
+        .set(auth(login.token))
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await request(app)
+        .get(base + "/files/" + file._id)
+        .set(auth(another.token))
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await request(app)
+        .patch("/api/workspace/orders/" + order._id + "/status")
+        .set(auth(login.token))
+        .send({ status: "Printing" })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await request(app)
+        .post(base + "/payment")
+        .set(auth(login.token))
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await request(app)
+        .patch(base + "/status")
+        .set(auth(login.token))
+        .send({ status: "Ready for pickup" })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await request(app)
+        .patch(base + "/status")
+        .set(auth(login.token))
+        .send({ status: "Printing" })
+    ).status,
+    200,
+  );
+  const ready = await request(app)
+    .patch(base + "/status")
+    .set(auth(login.token))
+    .send({ status: "Ready for pickup" });
+  assert.equal(ready.status, 200);
+  assert.ok(ready.body.readyAt);
+  assert.equal(
+    (
+      await request(app)
+        .patch(base + "/status")
+        .set(auth(login.token))
+        .send({ status: "Collected" })
+    ).status,
+    409,
+  );
+  const paid = await request(app)
+    .post(base + "/payment")
+    .set(auth(login.token));
+  assert.equal(paid.status, 200);
+  assert.equal(paid.body.paymentStatus, "paid");
+  assert.equal(
+    (
+      await request(app)
+        .patch(base + "/status")
+        .set(auth(login.token))
+        .send({ status: "Collected" })
+    ).status,
+    200,
+  );
+  await request(app).post("/api/auth/logout").set(auth(login.token));
+  assert.equal(
+    (await request(app).get("/api/workspace/orders").set(auth(login.token)))
+      .status,
+    401,
+  );
+});
+
+test("page ranges are validated and GCash cannot create a pretend paid order", async () => {
+  const book = {
+    shopId: shop._id,
+    fileIds: [file._id],
+    settings: {
+      paper: "A4",
+      color: "Black & white",
+      sides: "Single-sided",
+      copies: 1,
+      pageRange: "1-2, 2",
+    },
+    requestKey: randomUUID(),
+  };
+  const quote = await request(app)
+    .post("/api/quote")
+    .set(auth(customer))
+    .send(book);
+  assert.equal(quote.status, 200);
+  assert.equal(quote.body.pages, 2);
+  for (const pageRange of ["0", "3", "2-1", "1,,2", "x"]) {
+    assert.equal(
+      (
+        await request(app)
+          .post("/api/quote")
+          .set(auth(customer))
+          .send({ ...book, settings: { ...book.settings, pageRange } })
+      ).status,
+      400,
+    );
+  }
+  assert.equal(
+    (
+      await request(app)
+        .post("/api/orders")
+        .set(auth(customer))
+        .send({ ...book, paymentMethod: "gcash" })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await request(app)
+        .post("/api/orders")
+        .set(auth(customer))
+        .send({ ...book, requestKey: { $ne: "" } })
+    ).status,
+    400,
+  );
+});
+test("local demo seeds a usable owner without resetting the account on restart", async () => {
+  await seedDemoOwner();
+  const first = await User.findOne({ email: demoOwner.email }).select(
+    "+passwordHash",
+  );
+  const demoShop = await Shop.findById("70617072696e740000000001");
+  assert.equal(first.accountType, "owner");
+  assert.equal(String(demoShop.owner), first.id);
+  assert.equal(demoShop.registrationStatus, "approved");
+  await seedDemoOwner();
+  assert.equal(
+    (await User.findById(first.id).select("+passwordHash")).passwordHash,
+    first.passwordHash,
+  );
+  const login = await request(app).post("/api/auth/login").send(demoOwner);
+  assert.equal(login.status, 200);
+  const workspace = await request(app)
+    .get("/api/workspace")
+    .set(auth(login.body.token));
+  assert.equal(workspace.status, 200);
+  assert.equal(workspace.body._id, demoShop.id);
 });

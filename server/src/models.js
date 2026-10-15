@@ -1,5 +1,34 @@
 import mongoose from "mongoose";
 const { Schema, model } = mongoose;
+export const User = model(
+  "User",
+  new Schema({
+    email: { type: String, required: true, unique: true },
+    name: { type: String, required: true },
+    phone: { type: String, default: "" },
+    accountType: {
+      type: String,
+      enum: ["customer", "owner"],
+      default: "customer",
+    },
+    savedShops: [{ type: Schema.Types.ObjectId, ref: "Shop" }],
+    passwordHash: { type: String, required: true, select: false },
+    defaultPaper: {
+      type: String,
+      enum: ["A4", "Letter", "Legal"],
+      default: "A4",
+    },
+    reducedMotion: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now },
+  }),
+);
+export const AccountSession = model(
+  "AccountSession",
+  new Schema({
+    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    expiresAt: { type: Date, required: true, expires: 0 },
+  }),
+);
 export const Shop = model(
   "Shop",
   new Schema({
@@ -12,6 +41,22 @@ export const Shop = model(
     accent: String,
     monoRate: Number,
     colorRate: Number,
+    owner: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      unique: true,
+      sparse: true,
+    },
+    registrationStatus: {
+      type: String,
+      enum: ["draft", "submitted", "approved"],
+      default: "approved",
+    },
+    contact: String,
+    email: String,
+    hours: String,
+    representative: String,
+    documents: [{ name: String, path: String, size: Number }],
   }),
 );
 export const Upload = model(
@@ -26,7 +71,14 @@ export const Upload = model(
   }),
 );
 const settings = new Schema(
-  { paper: String, color: String, sides: String, copies: Number },
+  {
+    paper: String,
+    color: String,
+    sides: String,
+    copies: Number,
+    pageRange: String,
+    finishing: String,
+  },
   { _id: false },
 );
 export const Order = model(
@@ -53,6 +105,16 @@ export const Order = model(
     },
     requestKey: String,
     pickupCode: String,
+    paymentMethod: {
+      type: String,
+      enum: ["pickup", "gcash"],
+      default: "pickup",
+    },
+    paymentStatus: {
+      type: String,
+      enum: ["unpaid", "paid"],
+      default: "unpaid",
+    },
     readyAt: Date,
     pushState: { type: String, default: "none" },
     createdAt: { type: Date, default: Date.now },
@@ -103,11 +165,17 @@ export async function seedShops() {
       colorRate: 11,
     },
   ];
-  await Shop.bulkWrite(shops.map((shop, index) => ({
-    updateOne: {
-      filter: { _id: new mongoose.Types.ObjectId(`70617072696e74000000000${index + 1}`) },
-      update: { $setOnInsert: shop },
-      upsert: true,
-    },
-  })));
+  await Shop.bulkWrite(
+    shops.map((shop, index) => ({
+      updateOne: {
+        filter: {
+          _id: new mongoose.Types.ObjectId(
+            `70617072696e74000000000${index + 1}`,
+          ),
+        },
+        update: { $setOnInsert: shop },
+        upsert: true,
+      },
+    })),
+  );
 }

@@ -1,16 +1,64 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import type { DocumentPickerAsset } from "expo-document-picker";
-import type { PrintFile } from "./types";
+import type { PrintFile, Account } from "./types";
 export let baseUrl =
   process.env.EXPO_PUBLIC_API_URL ||
   (Platform.OS === "web" &&
   typeof window !== "undefined" &&
-  window.location.hostname !== "localhost" &&
-  window.location.hostname !== "127.0.0.1"
+  (window.location.port === "8083" ||
+    !["localhost", "127.0.0.1"].includes(window.location.hostname))
     ? window.location.origin
     : "http://localhost:4000");
 let token = "";
+let accountSession = false;
+let expired: (() => void) | undefined;
+export function onSessionExpired(listener: () => void) {
+  expired = listener;
+  return () => {
+    if (expired === listener) expired = undefined;
+  };
+}
+async function savedAccountToken() {
+  if (Platform.OS === "web")
+    return AsyncStorage.getItem("paprint.accountToken");
+  return (await import("expo-secure-store")).getItemAsync(
+    "paprint.accountToken",
+  );
+}
+export async function acceptAccount(result: { token: string; user: Account }) {
+  if (Platform.OS === "web")
+    await AsyncStorage.setItem("paprint.accountToken", result.token);
+  else
+    await (
+      await import("expo-secure-store")
+    ).setItemAsync("paprint.accountToken", result.token);
+  token = result.token;
+  accountSession = true;
+  return result.user;
+}
+export async function clearAccount() {
+  token = "";
+  accountSession = false;
+  if (Platform.OS === "web")
+    await AsyncStorage.removeItem("paprint.accountToken");
+  else
+    await (
+      await import("expo-secure-store")
+    ).deleteItemAsync("paprint.accountToken");
+}
+export async function restoreAccount() {
+  await initialize();
+  return accountSession ? request<Account>("/auth/me") : null;
+}
+export async function signOut() {
+  try {
+    await request("/device", { method: "DELETE" });
+    await request("/auth/logout", { method: "POST" });
+  } finally {
+    await clearAccount();
+  }
+}
 export async function initialize() {
   const stored = await AsyncStorage.multiGet([
     "paprint.api",
@@ -18,6 +66,9 @@ export async function initialize() {
   ]);
   baseUrl = stored[0][1] || baseUrl;
   token = stored[1][1] || "";
+  const accountToken = await savedAccountToken();
+  accountSession = !!accountToken;
+  if (accountToken) token = accountToken;
 }
 export async function setServer(url: string) {
   const parsed = new URL(url);
@@ -28,6 +79,7 @@ export async function setServer(url: string) {
   baseUrl = nextUrl;
   await AsyncStorage.setItem("paprint.api", baseUrl);
   if (changed) {
+    await clearAccount();
     token = "";
     await AsyncStorage.removeItem("paprint.session");
   }
@@ -37,6 +89,7 @@ export async function request<T>(
   options: RequestInit = {},
   shopToken?: string,
 ): Promise<T> {
+  const requestToken = shopToken || token;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
@@ -47,12 +100,25 @@ export async function request<T>(
         ...(options.body instanceof FormData
           ? {}
           : { "Content-Type": "application/json" }),
-        Authorization: `Bearer ${shopToken || token}`,
+        Authorization: `Bearer ${requestToken}`,
         ...options.headers,
       },
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || "Request failed.");
+    if (!response.ok) {
+      if (
+        response.status === 401 &&
+        accountSession &&
+        requestToken === token &&
+        !shopToken
+      ) {
+        await clearAccount();
+        expired?.();
+      }
+      throw Object.assign(new Error(data.message || "Request failed."), {
+        status: response.status,
+      });
+    }
     return data;
   } catch (error) {
     if (
@@ -68,15 +134,17 @@ export async function request<T>(
   }
 }
 export async function ensureSession() {
+  if (accountSession) return;
   const session = await request<{ token: string }>("/session", {
     method: "POST",
   });
   token = session.token;
   await AsyncStorage.setItem("paprint.session", token);
 }
-export async function uploadFiles(
+export async function uploadFiles<T = PrintFile[]>(
   assets: DocumentPickerAsset[],
-): Promise<PrintFile[]> {
+  route = "/uploads",
+): Promise<T> {
   const form = new FormData();
   for (const asset of assets) {
     if (Platform.OS === "web")
@@ -91,14 +159,15 @@ export async function uploadFiles(
       form.append("files", new File(asset.uri), asset.name);
     }
   }
-  return request("/uploads", { method: "POST", body: form });
+  return request(route, { method: "POST", body: form });
 }
 export async function openPrintFile(
   orderId: string,
   fileId: string,
-  shopToken: string,
+  shopToken = "",
+  workspace = false,
 ) {
-  const url = `${baseUrl}/api/orders/${orderId}/files/${fileId}`;
+  const url = `${baseUrl}/api${workspace ? "/workspace" : ""}/orders/${orderId}/files/${fileId}`;
   if (Platform.OS === "web") {
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${shopToken || token}` },

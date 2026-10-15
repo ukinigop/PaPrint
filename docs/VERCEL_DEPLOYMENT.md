@@ -36,25 +36,25 @@ Do not override these settings with a Next.js preset.
 
 Set the following in Vercel Project Settings → Environment Variables for the desired deployment environment:
 
-| Variable | Value |
-| --- | --- |
-| `MONGODB_URI` | Atlas connection string with the database name |
-| `JWT_SECRET` | A stable, randomly generated secret of at least 32 characters |
-| `SHOP_PIN` | A private shop-access PIN; avoid the local demo PIN |
-| `SEED_SAMPLE_SHOPS` | `true` to initialize sample shops on first connection |
-| `CORS_ORIGIN` | Optional exact web origin if using a separate frontend domain |
+| Variable            | Value                                                         |
+| ------------------- | ------------------------------------------------------------- |
+| `MONGODB_URI`       | Atlas connection string with the database name                |
+| `JWT_SECRET`        | A stable, randomly generated secret of at least 32 characters |
+| `SHOP_PIN`          | A private shop-access PIN; avoid the local demo PIN           |
+| `SEED_SAMPLE_SHOPS` | `true` to initialize sample shops on first connection         |
+| `CORS_ORIGIN`       | Optional exact web origin if using a separate frontend domain |
 
-Keep `JWT_SECRET` stable across redeployments so existing guest sessions retain access. Use a separate Atlas database and different credentials for previews if you enable them. No `EXPO_PUBLIC_API_URL` is needed for the hosted website: it automatically uses the same domain for `/api`. No `UPLOAD_DIR`, MongoDB binary, or local demo secret is needed on Vercel.
+Keep `JWT_SECRET` stable across redeployments so existing sessions retain access. Use a separate Atlas database and different credentials for previews if you enable them. No `EXPO_PUBLIC_API_URL` is needed for the hosted website: it automatically uses the same domain for `/api`. No `UPLOAD_DIR`, MongoDB binary, or local demo secret is needed on Vercel.
 
 ## 5. Deploy and verify
 
 Deploy from Vercel after the configured changes have been pushed to GitHub. Check:
 
 1. `https://YOUR-DOMAIN/api/health` returns `{"ok":true}`. The handler validates the environment and connects to Atlas before serving it.
-2. The home screen shows seeded shops without asking for a local computer address.
+2. Create an email account or sign in; the home screen should show seeded shops without asking for a local computer address.
 3. Upload `samples/sample-print.pdf`, choose options, and confirm an order.
-4. Open Profile → shop access with the private hosted PIN. Start printing and mark ready.
-5. Return to the customer inbox and verify the pickup notification. Reload and verify the order and PDF still exist.
+4. Sign in with an approved shop-owner account, open the workspace order queue, and move the order through Printing and Done.
+5. Return to the customer's Orders screen and verify the pickup details. Reload and verify the order and PDF still exist.
 6. Check Vercel function logs if you get a 503; it indicates missing configuration or an unreachable database.
 
 ## Connect the phone app to the hosted API
@@ -65,6 +65,6 @@ Set `EXPO_PUBLIC_API_URL=https://YOUR-DOMAIN` in `mobile/.env`, restart Expo, an
 
 Vercel has a 4.5 MB function request/response limit. Hosted uploads are restricted to **3 MB per PDF**, sent one at a time with a maximum of five documents per booking. The API reports the limit to the UI; the local demo retains 15 MB. Supporting larger hosted documents will require direct private object-storage uploads and streamed downloads rather than this function upload flow.
 
-The deployment uses guest customer sessions and a shared shop PIN. It is ready for an MVP demonstration, not public customer onboarding. In-memory rate limiting is best-effort per Vercel instance; configure Vercel Firewall rules for shared abuse protection. Background phone push still needs Expo push credentials; the in-app notification flow works without them. Existing upstream Expo dependency advisories remain documented in the main README.
+The customer app uses email accounts and persistent sessions. The owner workspace checks account ownership against MongoDB. The legacy staff API retains a shared shop PIN for compatibility; keep it private. Shop registration approval remains a trusted manual database operation. Email verification and password recovery are not implemented yet. It is ready for an MVP demonstration, not public customer onboarding. In-memory rate limiting is best-effort per Vercel instance; configure Vercel Firewall rules for shared abuse protection. Background phone push still needs Expo push credentials; the in-app notification flow works without them. Existing upstream Expo dependency advisories remain documented in the main README.
 
 References: [Vercel function limits](https://vercel.com/docs/functions/limitations), [MongoDB GridFS](https://www.mongodb.com/docs/drivers/node/current/crud/gridfs/), [Expo web publishing](https://docs.expo.dev/guides/publishing-websites/).
