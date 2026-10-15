@@ -14,6 +14,7 @@ import express from "express";
 import hostedHandler from "../../api/index.js";
 import { Order, Upload, Shop, User, seedShops } from "../src/models.js";
 import { seedDemoOwner, demoOwner } from "../src/demo-owner.js";
+import { promoteAdmin } from "../src/admin-account.js";
 
 let mongo,
   app,
@@ -38,6 +39,7 @@ before(async () => {
   app = createApp({
     secret: "test-secret-with-at-least-32-characters",
     shopPin: "2468",
+    enableLegacyShopAccess: true,
     uploadDir: folder,
     pushSender: async (notification) => delivered.push(notification),
   });
@@ -251,6 +253,10 @@ test("ready state creates durable pickup notification and sends exactly one push
   );
   assert.equal(delivered.length, 1);
   await request(app)
+    .post(`/api/orders/${order._id}/payment`)
+    .set(auth(shopToken))
+    .expect(200);
+  await request(app)
     .patch(route)
     .set(auth(shopToken))
     .send({ status: "Collected" })
@@ -266,6 +272,7 @@ test("hosted PDFs survive API recreation in private GridFS storage", async () =>
     secret: "test-secret-with-at-least-32-characters",
     shopPin: "2468",
     fileStorage: gridFsStorage(),
+    enableLegacyShopAccess: true,
     maxUploadBytes: 3 * 1024 * 1024,
     trustProxy: true,
   };
@@ -326,11 +333,13 @@ test("Vercel entry point connects to MongoDB and serves API routes", async () =>
     MONGODB_URI: process.env.MONGODB_URI,
     JWT_SECRET: process.env.JWT_SECRET,
     SHOP_PIN: process.env.SHOP_PIN,
+    ENABLE_LEGACY_SHOP_ACCESS: process.env.ENABLE_LEGACY_SHOP_ACCESS,
   };
   Object.assign(process.env, {
     MONGODB_URI: mongo.getUri(),
     JWT_SECRET: "test-secret-with-at-least-32-characters",
     SHOP_PIN: "2468",
+    ENABLE_LEGACY_SHOP_ACCESS: "true",
   });
   try {
     const entry = express();
@@ -803,4 +812,454 @@ test("local demo seeds a usable owner without resetting the account on restart",
     .set(auth(login.body.token));
   assert.equal(workspace.status, 200);
   assert.equal(workspace.body._id, demoShop.id);
+});
+
+test("admin promotion is explicit, revokes sessions and cannot elevate owners or public signups", async () => {
+  await request(app)
+    .post("/api/auth/signup")
+    .send({
+      name: "Intruder",
+      email: "intruder@example.test",
+      password: "Strong-password-123",
+      accountType: "admin",
+    })
+    .expect(400);
+  const signup = await request(app)
+    .post("/api/auth/signup")
+    .send({
+      name: "Reviewer",
+      email: "reviewer@example.test",
+      password: "Strong-password-123",
+    })
+    .expect(201);
+  await request(app)
+    .get("/api/admin/shops")
+    .set(auth(signup.body.token))
+    .expect(403);
+  await request(app)
+    .patch("/api/auth/me")
+    .set(auth(signup.body.token))
+    .send({ accountType: "admin" })
+    .expect(400);
+  await assert.rejects(
+    promoteAdmin("owner-workspace@example.test"),
+    /Owner accounts/,
+  );
+  await assert.rejects(
+    promoteAdmin("absent@example.test"),
+    /Create a customer/,
+  );
+  await promoteAdmin("reviewer@example.test");
+  await request(app)
+    .get("/api/auth/me")
+    .set(auth(signup.body.token))
+    .expect(401);
+});
+
+test("partner rejection, private document replacement, resubmission and approval form a complete flow", async () => {
+  const admin = (
+    await request(app)
+      .post("/api/auth/login")
+      .send({ email: "reviewer@example.test", password: "Strong-password-123" })
+      .expect(200)
+  ).body.token;
+  const ownerSignup = await request(app)
+    .post("/api/auth/signup")
+    .send({
+      name: "Pilot Owner",
+      email: "pilot-owner@example.test",
+      password: "Strong-password-123",
+      accountType: "owner",
+    })
+    .expect(201);
+  const owner = ownerSignup.body.token;
+  const details = {
+    name: "Pilot Prints",
+    representative: "Pilot Owner",
+    address: "Pilot Street, Naga City",
+    contact: "09123456789",
+    email: "pilot-shop@example.test",
+    hours: "8 AM–5 PM",
+    monoRate: 2,
+    colorRate: 8,
+  };
+  const draft = (
+    await request(app)
+      .put("/api/workspace")
+      .set(auth(owner))
+      .send(details)
+      .expect(200)
+  ).body;
+  const uploaded = (
+    await request(app)
+      .post("/api/workspace/documents")
+      .set(auth(owner))
+      .attach("files", pdf, "permit.pdf")
+      .attach("files", pdf, "proof.pdf")
+      .attach("files", pdf, "id.pdf")
+      .expect(201)
+  ).body;
+  const url = `/api/admin/shops/${draft._id}`;
+  const docUrl = `${url}/documents/${uploaded.documents[0]._id}`;
+  await request(app).get(url).expect(401);
+  await request(app).get(docUrl).set(auth(owner)).expect(403);
+  await request(app).get(docUrl).set(auth(customer)).expect(403);
+  await request(app)
+    .get(docUrl)
+    .set(auth(admin))
+    .expect(200)
+    .expect("Content-Type", /pdf/);
+  await request(app)
+    .get(`${url}/documents/000000000000000000000000`)
+    .set(auth(admin))
+    .expect(404);
+  await request(app)
+    .patch("/api/workspace/operations")
+    .set(auth(owner))
+    .send({ ...details, open: true })
+    .expect(403);
+  let submitted = (
+    await request(app)
+      .post("/api/workspace/submit")
+      .set(auth(owner))
+      .send({ confirm: true })
+      .expect(200)
+  ).body;
+  assert.equal(submitted.submissionVersion, 1);
+  const listed = (
+    await request(app).get("/api/admin/shops").set(auth(admin)).expect(200)
+  ).body;
+  assert.ok(listed.some((shop) => shop._id === draft._id));
+  assert.ok(!JSON.stringify(listed).includes('"path":'));
+  await request(app)
+    .post(`${url}/decision`)
+    .set(auth(owner))
+    .send({ decision: "approved", submissionVersion: 1 })
+    .expect(403);
+  await request(app)
+    .post(`${url}/decision`)
+    .set(auth(admin))
+    .send({ decision: "rejected", submissionVersion: 1 })
+    .expect(400);
+  const rejected = (
+    await request(app)
+      .post(`${url}/decision`)
+      .set(auth(admin))
+      .send({
+        decision: "rejected",
+        reason: "Replace the blurred permit",
+        submissionVersion: 1,
+      })
+      .expect(200)
+  ).body;
+  assert.equal(
+    rejected.reviews[0].reviewer,
+    (await User.findOne({ email: "reviewer@example.test" })).id,
+  );
+  assert.ok(rejected.reviews[0].at);
+  await request(app)
+    .post(`${url}/decision`)
+    .set(auth(admin))
+    .send({ decision: "approved", submissionVersion: 1 })
+    .expect(409);
+  assert.equal(
+    (await request(app).get("/api/shops").set(auth(customer))).body.some(
+      (shop) => shop._id === draft._id,
+    ),
+    false,
+  );
+  await request(app)
+    .put("/api/workspace")
+    .set(auth(owner))
+    .send({ ...details, contact: "09999999999" })
+    .expect(200);
+  assert.equal(
+    (await request(app).get("/api/workspace").set(auth(owner))).body
+      .rejectionReason,
+    "Replace the blurred permit",
+  );
+  await request(app)
+    .delete(`/api/workspace/documents/${uploaded.documents[0]._id}`)
+    .set(auth(owner))
+    .expect(200);
+  await request(app).get(docUrl).set(auth(admin)).expect(404);
+  await request(app)
+    .post("/api/workspace/submit")
+    .set(auth(owner))
+    .send({ confirm: true })
+    .expect(400);
+  await request(app)
+    .post("/api/workspace/documents")
+    .set(auth(owner))
+    .attach("files", pdf, "clear-permit.pdf")
+    .expect(201);
+  submitted = (
+    await request(app)
+      .post("/api/workspace/submit")
+      .set(auth(owner))
+      .send({ confirm: true })
+      .expect(200)
+  ).body;
+  assert.equal(submitted.submissionVersion, 2);
+  assert.equal(submitted.rejectionReason, "");
+  await request(app)
+    .post(`${url}/decision`)
+    .set(auth(admin))
+    .send({ decision: "approved", submissionVersion: 1 })
+    .expect(409);
+  const decisions = await Promise.all(
+    ["approved", "rejected"].map((decision) =>
+      request(app)
+        .post(`${url}/decision`)
+        .set(auth(admin))
+        .send({ decision, reason: "Review complete", submissionVersion: 2 }),
+    ),
+  );
+  assert.deepEqual(decisions.map((result) => result.status).sort(), [200, 409]);
+  // Both races are valid; ensure this fixture ends approved for the next test.
+  if (decisions[0].status !== 200) {
+    await request(app)
+      .post("/api/workspace/submit")
+      .set(auth(owner))
+      .send({ confirm: true })
+      .expect(200);
+    await request(app)
+      .post(`${url}/decision`)
+      .set(auth(admin))
+      .send({ decision: "approved", submissionVersion: 3 })
+      .expect(200);
+  }
+  const approved = (await request(app).get(url).set(auth(admin))).body;
+  assert.equal(approved.open, false);
+  await request(app)
+    .put("/api/workspace")
+    .set(auth(owner))
+    .send(details)
+    .expect(409);
+  await request(app)
+    .delete(`/api/workspace/documents/${uploaded.documents[1]._id}`)
+    .set(auth(owner))
+    .expect(409);
+  await request(app)
+    .post("/api/workspace/documents")
+    .set(auth(owner))
+    .attach("files", pdf, "extra.pdf")
+    .expect(409);
+  // Authorization follows the database rather than the role returned at login.
+  await User.updateOne(
+    { email: "reviewer@example.test" },
+    { accountType: "customer" },
+  );
+  await request(app).get(url).set(auth(admin)).expect(403);
+  await User.updateOne(
+    { email: "reviewer@example.test" },
+    { accountType: "admin" },
+  );
+});
+
+test("operating controls preserve identity, historical totals, file order and require renewed price confirmation", async () => {
+  const owner = (
+    await request(app).post("/api/auth/login").send({
+      email: "pilot-owner@example.test",
+      password: "Strong-password-123",
+    })
+  ).body.token;
+  const pilot = await Shop.findOne({ name: "Pilot Prints" });
+  const uploads = (
+    await request(app)
+      .post("/api/uploads")
+      .set(auth(customer))
+      .attach("files", pdf, "first.pdf")
+      .attach("files", pdf, "second.pdf")
+      .expect(201)
+  ).body;
+  const booking = {
+    ...payload(),
+    shopId: pilot.id,
+    fileIds: [uploads[1]._id, uploads[0]._id],
+    settings: {
+      paper: "A4",
+      color: "Black & white",
+      sides: "Single-sided",
+      copies: 1,
+      pageRange: "2-3",
+    },
+    expectedAmount: 4,
+    requestKey: randomUUID(),
+  };
+  await request(app)
+    .post("/api/quote")
+    .set(auth(customer))
+    .send(booking)
+    .expect(409);
+  const operations = {
+    hours: "9 AM–6 PM",
+    contact: "09111111111",
+    monoRate: 2,
+    colorRate: 8,
+    open: true,
+  };
+  await request(app)
+    .patch("/api/workspace/operations")
+    .set(auth(customer))
+    .send(operations)
+    .expect(403);
+  await request(app)
+    .patch("/api/workspace/operations")
+    .set(auth(owner))
+    .send({ ...operations, name: "Changed identity" })
+    .expect(400);
+  await request(app)
+    .patch("/api/workspace/operations")
+    .set(auth(owner))
+    .send({ ...operations, monoRate: -1 })
+    .expect(400);
+  await request(app)
+    .patch("/api/workspace/operations")
+    .set(auth(owner))
+    .send(operations)
+    .expect(200);
+  const created = (
+    await request(app)
+      .post("/api/orders")
+      .set(auth(customer))
+      .send(booking)
+      .expect(201)
+  ).body;
+  assert.deepEqual(
+    created.files.map((file) => file.upload),
+    booking.fileIds,
+  );
+  assert.equal(created.pages, 2);
+  assert.equal(created.amount, 4);
+  await request(app)
+    .patch("/api/workspace/operations")
+    .set(auth(owner))
+    .send({ ...operations, monoRate: 3 })
+    .expect(200);
+  await request(app)
+    .post("/api/quote")
+    .set(auth(customer))
+    .send({
+      ...booking,
+      fileIds: booking.fileIds.map((id) => id.toUpperCase()),
+    })
+    .expect(200);
+  const nextBooking = { ...booking, requestKey: randomUUID() };
+  const changed = (
+    await request(app)
+      .post("/api/orders")
+      .set(auth(customer))
+      .send(nextBooking)
+      .expect(409)
+  ).body;
+  assert.equal(changed.code, "PRICE_CHANGED");
+  assert.equal(changed.amount, 6);
+  assert.equal(
+    await Order.countDocuments({ requestKey: nextBooking.requestKey }),
+    0,
+  );
+  await request(app)
+    .post("/api/orders")
+    .set(auth(customer))
+    .send({ ...nextBooking, expectedAmount: 6 })
+    .expect(201);
+  await request(app)
+    .patch("/api/workspace/operations")
+    .set(auth(owner))
+    .send({ ...operations, open: false })
+    .expect(200);
+  await request(app)
+    .post("/api/orders")
+    .set(auth(customer))
+    .send({ ...booking, requestKey: randomUUID() })
+    .expect(409);
+  await request(app)
+    .post("/api/quote")
+    .set(auth(customer))
+    .send(booking)
+    .expect(409);
+  for (const status of ["Printing", "Ready for pickup"])
+    await request(app)
+      .patch(`/api/workspace/orders/${created._id}/status`)
+      .set(auth(owner))
+      .send({ status })
+      .expect(200);
+  await request(app)
+    .patch(`/api/workspace/orders/${created._id}/status`)
+    .set(auth(owner))
+    .send({ status: "Collected" })
+    .expect(409);
+  await request(app)
+    .post(`/api/workspace/orders/${created._id}/payment`)
+    .set(auth(owner))
+    .expect(200);
+  await request(app)
+    .patch(`/api/workspace/orders/${created._id}/status`)
+    .set(auth(owner))
+    .send({ status: "Collected" })
+    .expect(200);
+  const historical = await Order.findById(created._id);
+  assert.equal(historical.amount, 4);
+  assert.equal(historical.status, "Collected");
+  assert.equal((await Shop.findById(pilot.id)).name, "Pilot Prints");
+});
+
+test("legacy access defaults off, rejects existing PIN tokens, and enforces payment and approval when enabled", async () => {
+  const disabled = createApp({
+    secret: "test-secret-with-at-least-32-characters",
+    shopPin: "2468",
+    uploadDir: folder,
+  });
+  await request(disabled)
+    .post("/api/shop-session")
+    .send({ pin: "2468", shopId: shop._id })
+    .expect(403);
+  await request(disabled).get("/api/orders").set(auth(shopToken)).expect(401);
+  const created = (
+    await request(app)
+      .post("/api/orders")
+      .set(auth(customer))
+      .send({ ...payload(), requestKey: randomUUID() })
+      .expect(201)
+  ).body;
+  const pilot = await Shop.findOne({ name: "Pilot Prints" });
+  const legacyPilot = (
+    await request(app)
+      .post("/api/shop-session")
+      .send({ pin: "2468", shopId: pilot.id })
+      .expect(200)
+  ).body;
+  assert.equal(legacyPilot.shop.documents, undefined);
+  assert.equal(legacyPilot.shop.reviews, undefined);
+  const route = `/api/orders/${created._id}`;
+  await request(app).post(`${route}/payment`).set(auth(shopToken)).expect(409);
+  for (const status of ["Printing", "Ready for pickup"])
+    await request(app)
+      .patch(`${route}/status`)
+      .set(auth(shopToken))
+      .send({ status })
+      .expect(200);
+  await request(app)
+    .patch(`${route}/status`)
+    .set(auth(shopToken))
+    .send({ status: "Collected" })
+    .expect(409);
+  await request(app)
+    .post(`${route}/payment`)
+    .set(auth(otherShopToken))
+    .expect(409);
+  await request(app).post(`${route}/payment`).set(auth(shopToken)).expect(200);
+  await request(app)
+    .patch(`${route}/status`)
+    .set(auth(shopToken))
+    .send({ status: "Collected" })
+    .expect(200);
+  await Shop.updateOne({ _id: shop._id }, { registrationStatus: "rejected" });
+  await request(app)
+    .post("/api/shop-session")
+    .send({ pin: "2468", shopId: shop._id })
+    .expect(403);
+  await request(app).post(`${route}/payment`).set(auth(shopToken)).expect(403);
+  await Shop.updateOne({ _id: shop._id }, { registrationStatus: "approved" });
 });

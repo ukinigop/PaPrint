@@ -14,6 +14,8 @@ A mobile printing-booking app built with React Native + Expo Router, Express, No
 
 Payment is **pay at pickup**. The GCash QR screen is a clearly labeled placeholder; no payment is processed or marked paid through it. Prices, ratings, distances, wait estimates, and seeded shops are sample data. Pricing is per printed page, with a 25% multiplier for Legal paper. Double-sided changes the instructions, not the per-page rate. Page ranges such as 1-3, 5 are supported across files in upload order. DOCX/image uploads and binding services are not supported yet.
 
+Customers can cancel unpaid Preparing orders; approved shop owners can reject them with a reason. Both outcomes appear in order history with no payment due. Once printing starts, neither action is available. See [cancellation and rejection](docs/ORDER_OUTCOMES.md) for behavior, API routes and verification.
+
 ## Start the local demo
 
 Groupmates can follow [the branch checkout and local testing guide](docs/LOCAL_SETUP.md). No Atlas account or production environment file is required.
@@ -57,19 +59,19 @@ For browser previews on a different hostname, set `CORS_ORIGIN` in `server/.env`
 5. In Profile, update your name, default paper size, and reduced-motion preference; save and reload to verify persistence.
 6. Sign out, sign in again, and verify that your account still owns the order.
 
-To use the shop workspace, create a **Shop owner** account. Save business details, upload 3 registration PDFs, and submit for review. Submitted shops remain hidden until approved by a trusted database administrator; the MVP does not include an approval dashboard. Approved owners can view only their own shop's orders and private PDFs, move orders through Preparing → Printing → Done, confirm pickup payment, and mark them collected. The UI maps the existing stored Queued / Ready for pickup statuses to Preparing / Done. PaPrint does not directly control a printer.
+To use the shop workspace, create a **Shop owner** account. Save business details, upload 3 registration PDFs, and submit for review. A PaPrint admin reviews the registration in the approval dashboard. Rejected owners can correct details and replace documents before resubmitting. Approved owners open their shop from Shop profile and can update operating hours, contact and rates. See [local pilot setup](docs/PILOT_SETUP.md) for admin promotion, approval and operating controls. Approved owners can view only their own shop's orders and private PDFs, move orders through Preparing → Printing → Done, confirm pickup payment, and mark them collected. The UI maps the existing stored Queued / Ready for pickup statuses to Preparing / Done. PaPrint does not directly control a printer.
 
 See [accounts and motion](docs/ACCOUNTS_AND_MOTION.md) for account behavior, storage, motion, and the deferred features.
 
 ## Use your own MongoDB
 
-For a local MongoDB installation or MongoDB Atlas, copy `server/.env.example` to `server/.env`, set `MONGODB_URI`, a private `SHOP_PIN`, and a randomly generated `JWT_SECRET` with at least 32 characters. Then run:
+For a local MongoDB installation or MongoDB Atlas, copy `server/.env.example` to `server/.env`, set `MONGODB_URI`, a randomly generated `JWT_SECRET` with at least 32 characters. Then run:
 
 ```powershell
 npm run server
 ```
 
-Use either `demo` or `server`, not both. The demo uses its own database and an automatically generated persistent secret; the regular server uses your `.env` database and secret. Both seed sample shops into an empty database.
+Use either `demo` or `server`, not both. The demo uses its own database and an automatically generated persistent secret; the regular server uses your `.env` database and secret. Both seed sample shops into an empty database. Shared-PIN access is disabled unless explicitly enabled; see the pilot setup guide.
 
 ## Phone notifications
 
@@ -114,6 +116,6 @@ Integration tests cover session renewal, invalid PDF rejection, extracted page c
 
 ## Prototype boundaries
 
-Email accounts support cross-device sign-in against the same API and saved preferences. Legacy guest orders are not automatically linked to new accounts. Email ownership verification, password recovery, account deletion, a platform shop-approval dashboard, and real GCash integration remain deferred. Owners access a scoped workspace; the legacy staff API still uses a configured PIN. Before public use, add upload retention, verified partner data, shared rate limiting, and push delivery monitoring. Uploads remain stored even if removed from an unconfirmed booking.
+Email accounts support cross-device sign-in against the same API and saved preferences. Legacy guest orders are not automatically linked to new accounts. Email ownership verification, password recovery, account deletion, and real GCash integration remain deferred. Owners access a scoped workspace; the legacy staff API is disabled by default and requires explicit local-demo configuration. Before public use, add upload retention, verified partner data, shared rate limiting, and push delivery monitoring. Uploads remain stored even if removed from an unconfirmed booking.
 
 The installed Expo toolchain still reports transitive dependency advisories after compatible updates. Do not use `npm audit fix --force`: the suggested automatic fix downgrades Expo incompatibly. Review upstream fixes and revalidate before deploying publicly.

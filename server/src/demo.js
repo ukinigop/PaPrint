@@ -28,21 +28,25 @@ await seedShops();
 await seedDemoOwner();
 const app = createApp({
   secret,
+  enableLegacyShopAccess: process.env.ENABLE_LEGACY_SHOP_ACCESS === "true",
   shopPin: process.env.SHOP_PIN || "2468",
   uploadDir: directory,
   corsOrigin: process.env.CORS_ORIGIN,
 });
-const server = app.listen(4000, "0.0.0.0", () =>
+const server = app.listen(4000, "0.0.0.0", () => {
+  console.log("Local demo database for admin promotion: " + mongo.getUri());
   console.log(
-    "PaPrint demo API: http://localhost:4000 | Shop PIN: " +
-      (process.env.SHOP_PIN ? "(from .env)" : "2468") +
+    "PaPrint demo API: http://localhost:4000 | Shared-PIN access: " +
+      (process.env.ENABLE_LEGACY_SHOP_ACCESS === "true"
+        ? "enabled"
+        : "disabled") +
       "\nSample shops and prices. MongoDB data persists in server/uploads/demo-db." +
       "\nLocal demo owner: " +
       demoOwner.email +
       " | Password: " +
       demoOwner.password,
-  ),
-);
+  );
+});
 async function stop() {
   server.close();
   await mongoose.disconnect();

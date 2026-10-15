@@ -35,6 +35,6 @@ The web build, TypeScript, and lint must pass before publishing. Test the press 
 
 ## Deliberately deferred
 
-Google/Apple sign-in, email ownership verification, password recovery, account deletion, platform approval dashboard, and real GCash payment integration remain deferred. This remains an MVP account system. There is no fake reset-password button or simulated social login. Owners cannot approve their own shop; approval remains a trusted database operation.
+Google/Apple sign-in, email ownership verification, password recovery, account deletion, and real GCash payment integration remain deferred. This remains an MVP account system. There is no fake reset-password button or simulated social login. Owners cannot approve their own shop; administrators review it in the approval dashboard. See PILOT_SETUP.md.
 
 Sign-out clears the local credential even if the server is unreachable. Only successful online sign-out confirms server session revocation. Guest orders remain accessible only through their original guest credential; no automatic email-based linking or merging is performed.

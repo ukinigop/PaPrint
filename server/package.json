@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "test": "node --test --test-concurrency=1",
     "demo": "node src/demo.js",
-    "seed": "node scripts/seed.js"
+    "seed": "node scripts/seed.js",
+    "admin:promote": "node scripts/promote-admin.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -39,6 +39,7 @@ function useAppState() {
   }>({ shop: null, files: [], settings: defaults, notes: "", requestKey: "" });
   const [notificationMessage, setNotificationMessage] = useState("");
   const polling = useRef(false);
+  const refreshRevision = useRef(0);
   const userRef = useRef(user);
   useEffect(() => {
     userRef.current = user;
@@ -69,27 +70,47 @@ function useAppState() {
       off();
     };
   }, []);
-  async function refresh() {
+  async function refresh(force = false) {
     const currentUser = userRef.current;
-    if (!currentUser || polling.current) return;
+    if (
+      !currentUser ||
+      currentUser.accountType === "admin" ||
+      (polling.current && !force)
+    )
+      return;
     polling.current = true;
+    const revision = ++refreshRevision.current;
     try {
       const [list, history, config] = await Promise.all([
         api.request<Shop[]>("/shops"),
         api.request<Order[]>("/orders"),
         api.request<{ maxUploadBytes: number }>("/config"),
       ]);
-      if (userRef.current?.id !== currentUser.id) return;
+      if (
+        userRef.current?.id !== currentUser.id ||
+        revision !== refreshRevision.current
+      )
+        return;
       setShops(list);
       setOrders(history);
       setMaxUploadBytes(config.maxUploadBytes);
       if (currentUser.accountType === "owner") {
         const shop = await api.request<Shop | null>("/workspace");
-        if (userRef.current?.id !== currentUser.id) return;
+        if (
+          userRef.current?.id !== currentUser.id ||
+          revision !== refreshRevision.current
+        )
+          return;
         setWorkspace(shop);
-        setOwnerOrders(
-          shop ? await api.request<Order[]>("/workspace/orders") : [],
-        );
+        const queue = shop
+          ? await api.request<Order[]>("/workspace/orders")
+          : [];
+        if (
+          userRef.current?.id !== currentUser.id ||
+          revision !== refreshRevision.current
+        )
+          return;
+        setOwnerOrders(queue);
       }
       if (Platform.OS !== "web") {
         const N = await import("expo-notifications");
@@ -121,13 +142,13 @@ function useAppState() {
           JSON.stringify([...stored]),
         );
       }
-      setError("");
+      if (revision === refreshRevision.current) setError("");
     } finally {
-      polling.current = false;
+      if (revision === refreshRevision.current) polling.current = false;
     }
   }
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.accountType === "admin") return;
     const update = () => {
       if (AppState.currentState === "active")
         void refresh().catch((e) => setError(e.message));

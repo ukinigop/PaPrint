@@ -1,3 +1,12 @@
+import {
+  canEndOrder,
+  isActiveOrder,
+  isTerminalOrder,
+  isCancelledOrRejected,
+  paymentLabel,
+} from "./orderStatus";
+import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
+import { Admin } from "./Admin";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Linking,
@@ -226,9 +235,11 @@ function OrderCard({ order }: { order: Order }) {
           {order.shop.name} · {order.pages} pages · {money(order.amount)}
         </Text>
         <Text style={s.small}>
-          {order.paymentStatus === "paid"
-            ? "Paid"
-            : "Pay on pickup · " + money(order.amount) + " due"}
+          {isCancelledOrRejected(order)
+            ? "No payment due"
+            : order.paymentStatus === "paid"
+              ? "Paid"
+              : "Pay on pickup · " + money(order.amount) + " due"}
         </Text>
         <Text style={{ color: colors.primary }}>View order →</Text>
       </Card>
@@ -237,7 +248,7 @@ function OrderCard({ order }: { order: Order }) {
 }
 function Home() {
   const { user, shops, orders } = useApp();
-  const active = orders.find((o) => o.status !== "Collected");
+  const active = orders.find(isActiveOrder);
   return (
     <Frame
       title="Home"
@@ -489,6 +500,10 @@ function Upload() {
         {progress && <UploadProgress {...progress} />}
       </Card>
       <FileCards />
+      <Text style={s.small}>
+        PDFs print in the order shown. Page ranges count continuously across
+        these files.
+      </Text>
       {!!app.draft.files.length && (
         <>
           <Pill>Upload complete</Pill>
@@ -639,6 +654,8 @@ function Review({ amount }: { amount: string }) {
   const app = useApp(),
     { busy, run } = useAction();
   const [payment, setPayment] = useState("Pay on pickup");
+  const [reviewedAmount, setReviewedAmount] = useState(Number(amount) || 0);
+  const [priceNotice, setPriceNotice] = useState("");
   if (!app.draft.shop || !app.draft.files.length)
     return <Redirect href="/shops" />;
   const { draft } = app;
@@ -665,11 +682,16 @@ function Review({ amount }: { amount: string }) {
           value={draft.settings.sides + " · " + draft.settings.copies}
         />
         <View style={{ height: 1, backgroundColor: colors.line }} />
-        <Pair label="Total" value={money(Number(amount) || 0)} />
+        <Pair label="Total" value={money(reviewedAmount)} />
         <LinkText onPress={() => router.push("/options")}>
           Edit file or print options →
         </LinkText>
       </Card>
+      {priceNotice ? (
+        <Text accessibilityRole="alert" style={s.body}>
+          {priceNotice}
+        </Text>
+      ) : null}
       <Text style={s.sectionTitle}>Choose payment</Text>
       {["GCash QR", "Pay on pickup"].map((p) => (
         <Pressable
@@ -686,8 +708,7 @@ function Review({ amount }: { amount: string }) {
             <Text style={s.small}>
               {p === "GCash QR"
                 ? "Preview the QR payment screen. Payments aren’t connected yet."
-                : money(Number(amount) || 0) +
-                  " due when collecting your prints."}
+                : money(reviewedAmount) + " due when collecting your prints."}
             </Text>
           </Card>
         </Pressable>
@@ -705,17 +726,37 @@ function Review({ amount }: { amount: string }) {
             return;
           }
           void run(async () => {
-            const order = await api.request<Order>("/orders", {
-              method: "POST",
-              body: JSON.stringify({
-                shopId: draft.shop!._id,
-                fileIds: draft.files.map((f) => f._id),
-                settings: draft.settings,
-                notes: draft.notes,
-                requestKey: draft.requestKey,
-                paymentMethod: "pickup",
-              }),
-            });
+            let order: Order;
+            try {
+              order = await api.request<Order>("/orders", {
+                method: "POST",
+                body: JSON.stringify({
+                  shopId: draft.shop!._id,
+                  fileIds: draft.files.map((f) => f._id),
+                  settings: draft.settings,
+                  notes: draft.notes,
+                  requestKey: draft.requestKey,
+                  paymentMethod: "pickup",
+                  expectedAmount: reviewedAmount,
+                }),
+              });
+            } catch (error) {
+              const changed = error as Error & {
+                code?: string;
+                amount?: number;
+              };
+              if (
+                changed.code === "PRICE_CHANGED" &&
+                typeof changed.amount === "number"
+              ) {
+                setReviewedAmount(changed.amount);
+                setPriceNotice(
+                  "The shop updated its rates. Review the new total and press Place order again to confirm.",
+                );
+                return;
+              }
+              throw error;
+            }
             app.setOrders((previous) => [
               order,
               ...previous.filter((o) => o._id !== order._id),
@@ -787,7 +828,7 @@ function Orders() {
   const { orders } = useApp();
   const [filter, setFilter] = useState("Active");
   const list = orders.filter((o) =>
-    filter === "Active" ? o.status !== "Collected" : o.status === "Collected",
+    filter === "Active" ? isActiveOrder(o) : isTerminalOrder(o),
   );
   return (
     <Frame
@@ -796,7 +837,7 @@ function Orders() {
       tab="Orders"
     >
       <Segments
-        values={["Active", "Completed"]}
+        values={["Active", "History"]}
         value={filter}
         onChange={setFilter}
       />
@@ -806,7 +847,7 @@ function Orders() {
       {!list.length && (
         <Card>
           <Text style={s.cardTitle}>
-            {filter === "Active" ? "No active orders" : "No completed orders"}
+            {filter === "Active" ? "No active orders" : "No order history yet"}
           </Text>
           <Text style={s.muted}>Your print orders will appear here.</Text>
           <LinkText onPress={() => router.push("/shops")}>
@@ -820,6 +861,10 @@ function Orders() {
 function OrderDetails({ id }: { id: string }) {
   const app = useApp(),
     { busy, run } = useAction();
+  const [cancelling, setCancelling] = useState<{
+    id: string;
+    reason: string;
+  } | null>(null);
   const order = app.orders.find((o) => o._id === id);
   if (!order)
     return (
@@ -840,35 +885,41 @@ function OrderDetails({ id }: { id: string }) {
       tab="Orders"
       back="/orders"
     >
-      <PrintingIndicator status={order.status} />
-      <Card>
-        {statuses.map((status, i) => (
-          <View key={status} style={[s.row, { gap: 16 }]}>
-            <Text
-              style={{
-                color:
-                  i <= index || order.status === "Collected"
-                    ? colors.primary
-                    : colors.muted,
-                fontSize: 20,
-              }}
-            >
-              {i <= index || order.status === "Collected" ? "●" : "○"}
-            </Text>
-            <View style={{ gap: 4 }}>
-              <Text style={s.body}>{stage(status)}</Text>
-              <Text style={s.small}>
-                {order.status === "Collected" || i < index
-                  ? "Completed"
-                  : i === index
-                    ? "Current status"
-                    : "Up next"}
-              </Text>
-            </View>
-          </View>
-        ))}
-      </Card>
-      {order.readyAt && (
+      {isCancelledOrRejected(order) ? (
+        <OrderOutcome order={order} />
+      ) : (
+        <>
+          <PrintingIndicator status={order.status} />
+          <Card>
+            {statuses.map((status, i) => (
+              <View key={status} style={[s.row, { gap: 16 }]}>
+                <Text
+                  style={{
+                    color:
+                      i <= index || order.status === "Collected"
+                        ? colors.primary
+                        : colors.muted,
+                    fontSize: 20,
+                  }}
+                >
+                  {i <= index || order.status === "Collected" ? "●" : "○"}
+                </Text>
+                <View style={{ gap: 4 }}>
+                  <Text style={s.body}>{stage(status)}</Text>
+                  <Text style={s.small}>
+                    {order.status === "Collected" || i < index
+                      ? "Completed"
+                      : i === index
+                        ? "Current status"
+                        : "Up next"}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </Card>
+        </>
+      )}
+      {order.readyAt && !isCancelledOrRejected(order) && (
         <Card tint>
           <Text style={s.cardTitle}>
             {order.status === "Collected" ? "Collected" : "Ready for pickup"}
@@ -885,9 +936,11 @@ function OrderDetails({ id }: { id: string }) {
         <Pair
           label="Payment"
           value={
-            order.paymentStatus === "paid"
-              ? "Paid"
-              : money(order.amount) + " due on pickup"
+            isCancelledOrRejected(order)
+              ? "No payment due"
+              : order.paymentStatus === "paid"
+                ? "Paid"
+                : money(order.amount) + " due on pickup"
           }
         />
         <Text style={s.body}>
@@ -913,7 +966,12 @@ function OrderDetails({ id }: { id: string }) {
         {order.settings.pageRange && (
           <Pair label="Page range" value={order.settings.pageRange} />
         )}
-        <Pair label="Total" value={money(order.amount)} />
+        <Pair
+          label={
+            isCancelledOrRejected(order) ? "Original quoted total" : "Total"
+          }
+          value={money(order.amount)}
+        />
         {order.files.map((f) => (
           <Button
             key={f.upload}
@@ -926,6 +984,60 @@ function OrderDetails({ id }: { id: string }) {
           />
         ))}
       </Card>
+      {canEndOrder(order) &&
+        (cancelling?.id === order._id ? (
+          <EndOrderPanel
+            reason={cancelling.reason}
+            onReason={(reason) => setCancelling({ id: order._id, reason })}
+            busy={busy}
+            onKeep={() => setCancelling(null)}
+            onConfirm={() =>
+              void run(async () => {
+                let updated: Order;
+                try {
+                  updated = await api.request<Order>(
+                    "/orders/" + order._id + "/cancel",
+                    {
+                      method: "POST",
+                      body: JSON.stringify({ reason: cancelling.reason }),
+                    },
+                  );
+                } catch (error) {
+                  if ((error as { status?: number }).status === 409) {
+                    setCancelling(null);
+                    await app.refresh(true).catch(() => {});
+                    throw new Error(
+                      "The order stage changed. Cancellation is only available before printing. Review the latest status.",
+                    );
+                  }
+                  throw error;
+                }
+                app.setOrders((list) =>
+                  list.map((item) =>
+                    item._id === updated._id ? updated : item,
+                  ),
+                );
+                setCancelling(null);
+                void app
+                  .refresh(true)
+                  .catch((error) => app.setError(error.message));
+              })
+            }
+          />
+        ) : (
+          <Button
+            title="Cancel order"
+            secondary
+            disabled={busy}
+            onPress={() => setCancelling({ id: order._id, reason: "" })}
+          />
+        ))}
+      {order.status === "Printing" ? (
+        <Text style={s.small}>
+          Printing has started. Contact the shop if you need help with this
+          order.
+        </Text>
+      ) : null}
     </Frame>
   );
 }
@@ -1055,11 +1167,7 @@ function Profile() {
               <Pair
                 key={o._id}
                 label={orderCode(o._id)}
-                value={
-                  money(o.amount) +
-                  " · " +
-                  (o.paymentStatus === "paid" ? "Paid" : "Due on pickup")
-                }
+                value={money(o.amount) + " · " + paymentLabel(o)}
               />
             ))
           ) : (
@@ -1177,9 +1285,22 @@ export default function Screen() {
   if (screen === "login" || screen === "signup")
     return (
       <Redirect
-        href={app.user.accountType === "owner" ? "/workspace" : "/home"}
+        href={
+          app.user.accountType === "admin"
+            ? "/admin"
+            : app.user.accountType === "owner"
+              ? "/workspace"
+              : "/home"
+        }
       />
     );
+  if (app.user.accountType === "admin")
+    return screen === "admin" ? (
+      <Admin id={params.id || ""} />
+    ) : (
+      <Redirect href="/admin" />
+    );
+  if (screen === "admin") return <Redirect href="/" />;
   switch (screen) {
     case "home":
       return <Home />;

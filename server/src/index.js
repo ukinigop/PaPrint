@@ -5,13 +5,15 @@ import { createApp } from "./app.js";
 import { seedShops } from "./models.js";
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32)
   throw new Error("Set JWT_SECRET to at least 32 characters in server/.env.");
-if (!process.env.SHOP_PIN) throw new Error("Set SHOP_PIN in server/.env.");
+if (process.env.ENABLE_LEGACY_SHOP_ACCESS === "true" && !process.env.SHOP_PIN)
+  throw new Error("Set SHOP_PIN when legacy access is enabled.");
 await mongoose.connect(
   process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/paprint",
 );
 await seedShops();
 const app = createApp({
   secret: process.env.JWT_SECRET,
+  enableLegacyShopAccess: process.env.ENABLE_LEGACY_SHOP_ACCESS === "true",
   shopPin: process.env.SHOP_PIN,
   uploadDir: path.resolve(process.env.UPLOAD_DIR || "uploads"),
   corsOrigin: process.env.CORS_ORIGIN,

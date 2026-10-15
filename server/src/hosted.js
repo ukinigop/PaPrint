@@ -11,10 +11,11 @@ export default async function handler(req, res) {
       !process.env.MONGODB_URI ||
       !process.env.JWT_SECRET ||
       process.env.JWT_SECRET.length < 32 ||
-      !process.env.SHOP_PIN
+      (process.env.ENABLE_LEGACY_SHOP_ACCESS === "true" &&
+        !process.env.SHOP_PIN)
     )
       throw new Error(
-        "Configure MONGODB_URI, JWT_SECRET (32+ characters), and SHOP_PIN in Vercel.",
+        "Configure MONGODB_URI and JWT_SECRET (32+ characters). SHOP_PIN is required only when legacy access is enabled.",
       );
     if (!connection) {
       connection = mongoose
@@ -33,6 +34,7 @@ export default async function handler(req, res) {
     await connection;
     app ||= createApp({
       secret: process.env.JWT_SECRET,
+      enableLegacyShopAccess: process.env.ENABLE_LEGACY_SHOP_ACCESS === "true",
       shopPin: process.env.SHOP_PIN,
       fileStorage: gridFsStorage(),
       maxUploadBytes: 3 * 1024 * 1024,
@@ -42,11 +44,9 @@ export default async function handler(req, res) {
     return app(req, res);
   } catch (error) {
     console.error("PaPrint initialization failed:", error.message);
-    res
-      .status(503)
-      .json({
-        message:
-          "PaPrint is temporarily unavailable. Check the server configuration and database connection.",
-      });
+    res.status(503).json({
+      message:
+        "PaPrint is temporarily unavailable. Check the server configuration and database connection.",
+    });
   }
 }

@@ -27,7 +27,7 @@ GCash is a placeholder, matching the wireframe's placeholder QR. It cannot creat
 
 Uploads remain validated PDFs with accurate page counts: 3 MB in the hosted/local UI preview, 15 MB with the standalone demo API. The wireframe's DOCX/JPG/PNG and 25 MB text is replaced with the real supported limits. Finishing currently supports No binding.
 
-Shop approval is a trusted manual database operation. Owners cannot self-approve or publish a shop through the API. Submitted registrations cannot be changed while under review. A platform approval dashboard, password recovery/email verification, public legal terms, and document retention/account deletion workflows remain future work. No social login is included.
+Administrators review submitted partners in a responsive approval dashboard; owners cannot self-approve. Rejected registrations show a reason and can be corrected/resubmitted. Approved owners control operating hours, contact, rates and open/closed status; approved identity documents remain locked. Password recovery/email verification, public legal terms, and document retention/account deletion workflows remain future work. No social login is included.
 
 ## Verification
 

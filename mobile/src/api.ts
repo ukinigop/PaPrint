@@ -117,6 +117,9 @@ export async function request<T>(
       }
       throw Object.assign(new Error(data.message || "Request failed."), {
         status: response.status,
+        code: data.code,
+        amount: data.amount,
+        pages: data.pages,
       });
     }
     return data;
@@ -167,7 +170,18 @@ export async function openPrintFile(
   shopToken = "",
   workspace = false,
 ) {
-  const url = `${baseUrl}/api${workspace ? "/workspace" : ""}/orders/${orderId}/files/${fileId}`;
+  return openPrivatePdf(
+    `${workspace ? "/workspace" : ""}/orders/${orderId}/files/${fileId}`,
+    fileId,
+    shopToken,
+  );
+}
+export async function openPrivatePdf(
+  route: string,
+  fileId: string,
+  shopToken = "",
+) {
+  const url = `${baseUrl}/api${route}`;
   if (Platform.OS === "web") {
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${shopToken || token}` },

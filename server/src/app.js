@@ -10,12 +10,20 @@ import { diskStorage } from "./storage.js";
 import { Shop, Upload, Order, Device, AccountSession } from "./models.js";
 import { installAccounts } from "./accounts.js";
 import { installWorkspace } from "./workspace.js";
-import { bookingSchema, price, nextStatus } from "./domain.js";
+import { installAdmin } from "./admin.js";
+import {
+  advanceOrder,
+  confirmPayment,
+  endOrder,
+  publicShop,
+} from "./fulfillment.js";
+import { bookingSchema, price } from "./domain.js";
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export function createApp({
   secret,
   shopPin,
+  enableLegacyShopAccess = false,
   uploadDir,
   fileStorage = diskStorage(uploadDir),
   maxUploadBytes = 15 * 1024 * 1024,
@@ -49,19 +57,34 @@ export function createApp({
           })))
       )
         throw new Error("Session ended");
+      if (req.user.role === "shop" && !enableLegacyShopAccess)
+        throw new Error("Legacy access disabled");
+      if (
+        req.user.role === "shop" &&
+        (await Shop.findById(req.user.id))?.registrationStatus !== "approved"
+      )
+        throw fail(403, "Shop approval required.");
       next();
-    } catch {
-      next(fail(401, "Your session expired. Please sign in again."));
+    } catch (error) {
+      next(
+        error.status === 403
+          ? error
+          : fail(401, "Your session expired. Please sign in again."),
+      );
     }
   };
   const customer = (req, res, next) =>
     req.user.role === "customer"
       ? next()
       : next(fail(403, "Customer access required."));
-  const merchant = (req, res, next) =>
-    req.user.role === "shop"
-      ? next()
-      : next(fail(403, "Shop access required."));
+  const merchant = async (req, res, next) => {
+    if (req.user.role !== "shop") throw fail(403, "Shop access required.");
+    const shop = await Shop.findById(req.user.id);
+    if (!shop || shop.registrationStatus !== "approved")
+      throw fail(403, "Shop approval required.");
+    next();
+  };
+  installAdmin(app, { auth, fileStorage });
   installAccounts(app, { secret, auth, customer });
   installWorkspace(app, {
     auth,
@@ -99,17 +122,31 @@ export function createApp({
     "/api/shop-session",
     rateLimit({ windowMs: 15 * 60_000, limit: 10 }),
     async (req, res) => {
+      if (!enableLegacyShopAccess)
+        throw fail(
+          403,
+          "Shared-PIN access is disabled. Sign in with your owner account.",
+        );
       if (!shopPin || req.body.pin !== shopPin)
         throw fail(401, "Incorrect shop access PIN.");
-      const shop = await Shop.findById(validId(req.body.shopId));
+      const shop = await Shop.findById(validId(req.body.shopId)).select(
+        publicShop.select,
+      );
       if (!shop) throw fail(404, "Shop not found.");
+      if (shop.registrationStatus !== "approved")
+        throw fail(403, "Shop approval required.");
       res.json({ token: sign({ id: shop.id, role: "shop" }), shop });
     },
   );
   app.get("/api/shops", auth, async (req, res) =>
     res.json(
-      await Shop.find({ registrationStatus: { $nin: ["draft", "submitted"] } })
-        .select("-documents -email -owner")
+      await Shop.find({
+        $or: [
+          { registrationStatus: "approved" },
+          { registrationStatus: { $exists: false } },
+        ],
+      })
+        .select(publicShop.select)
         .sort({ open: -1, rating: -1 }),
     ),
   );
@@ -184,7 +221,7 @@ export function createApp({
     const data = parsed.data;
     const shop = await Shop.findById(data.shopId);
     if (!shop) throw fail(404, "Shop not found.");
-    if (["draft", "submitted"].includes(shop.registrationStatus))
+    if (shop.registrationStatus !== "approved")
       throw fail(409, "This shop is not accepting orders yet.");
     if (data.paymentMethod === "gcash")
       throw fail(
@@ -193,12 +230,14 @@ export function createApp({
       );
     if (!shop.open)
       throw fail(409, "This shop is closed. Please choose an open shop.");
-    const files = await Upload.find({
+    const foundFiles = await Upload.find({
       _id: { $in: data.fileIds },
       owner: req.user.id,
     });
-    if (files.length !== data.fileIds.length)
+    if (foundFiles.length !== data.fileIds.length)
       throw fail(400, "Some files are unavailable. Upload your files again.");
+    const byId = new Map(foundFiles.map((file) => [file.id, file]));
+    const files = data.fileIds.map((id) => byId.get(id.toLowerCase()));
     return { data, shop, files, ...price(shop, files, data.settings) };
   }
   app.post("/api/quote", auth, customer, async (req, res) => {
@@ -212,9 +251,17 @@ export function createApp({
     const existing = await Order.findOne({
       customer: req.user.id,
       requestKey: valid.data.requestKey,
-    }).populate({ path: "shop", select: "-documents -email -owner" });
+    }).populate(publicShop);
     if (existing) return res.json(existing);
     const { data, shop, files, pages, amount } = await prepare(req);
+    if (data.expectedAmount !== undefined && data.expectedAmount !== amount)
+      return res.status(409).json({
+        message:
+          "The price changed. Review the updated total and confirm again.",
+        code: "PRICE_CHANGED",
+        amount,
+        pages,
+      });
     try {
       const order = await Order.create({
         customer: req.user.id,
@@ -233,21 +280,19 @@ export function createApp({
         paymentMethod: data.paymentMethod,
         pickupCode: String(randomInt(100000, 1000000)),
       });
-      res
-        .status(201)
-        .json(
-          await order.populate({
-            path: "shop",
-            select: "-documents -email -owner",
-          }),
-        );
+      res.status(201).json(
+        await order.populate({
+          path: "shop",
+          select: publicShop.select,
+        }),
+      );
     } catch (error) {
       if (error.code === 11000)
         return res.json(
           await Order.findOne({
             customer: req.user.id,
             requestKey: data.requestKey,
-          }).populate({ path: "shop", select: "-documents -email -owner" }),
+          }).populate(publicShop),
         );
       throw error;
     }
@@ -258,9 +303,7 @@ export function createApp({
         ? { shop: req.user.id }
         : { customer: req.user.id };
     res.json(
-      await Order.find(filter)
-        .sort({ createdAt: -1 })
-        .populate({ path: "shop", select: "-documents -email -owner" }),
+      await Order.find(filter).sort({ createdAt: -1 }).populate(publicShop),
     );
   });
   app.get("/api/orders/:id/files/:fileId", auth, async (req, res) => {
@@ -284,25 +327,38 @@ export function createApp({
     res.send(await fileStorage.read(file.path));
   });
   app.patch("/api/orders/:id/status", auth, merchant, async (req, res) => {
-    const order = await Order.findOne({
-      _id: validId(req.params.id),
-      shop: req.user.id,
-    });
-    if (!order) throw fail(404, "Order not found.");
-    if (nextStatus[order.status] !== req.body.status)
-      throw fail(409, "This order changed. Refresh and try again.");
-    const update = { status: req.body.status };
-    if (req.body.status === "Ready for pickup")
-      Object.assign(update, { readyAt: new Date(), pushState: "pending" });
-    const changed = await Order.findOneAndUpdate(
-      { _id: order.id, status: order.status },
-      update,
-      { new: true },
-    ).populate({ path: "shop", select: "-documents -email -owner" });
-    if (!changed) throw fail(409, "This order changed. Refresh and try again.");
-    if (changed.readyAt && changed.pushState === "pending")
-      await sendPickup(changed, pushSender);
-    res.json(changed);
+    res.json(
+      await advanceOrder(req.user.id, req.params.id, req.body.status, (order) =>
+        sendPickup(order, pushSender),
+      ),
+    );
+  });
+  app.post("/api/orders/:id/payment", auth, merchant, async (req, res) => {
+    res.json(await confirmPayment(req.user.id, req.params.id));
+  });
+  app.post("/api/orders/:id/cancel", auth, customer, async (req, res) => {
+    res.json(
+      await endOrder({
+        id: req.params.id,
+        scope: { customer: req.user.id },
+        status: "Cancelled",
+        actorId: req.user.id,
+        actorRole: "customer",
+        body: req.body,
+      }),
+    );
+  });
+  app.post("/api/orders/:id/reject", auth, merchant, async (req, res) => {
+    res.json(
+      await endOrder({
+        id: req.params.id,
+        scope: { shop: req.user.id },
+        status: "Rejected",
+        actorId: req.user.id,
+        actorRole: "shop",
+        body: req.body,
+      }),
+    );
   });
   app.post("/api/device", auth, customer, async (req, res) => {
     if (
@@ -318,15 +374,21 @@ export function createApp({
   });
   app.use((error, req, res, next) => {
     const status =
-      error instanceof multer.MulterError ? 400 : error.status || 500;
+      error instanceof multer.MulterError
+        ? 400
+        : error.name === "VersionError"
+          ? 409
+          : error.status || 500;
     if (status === 500) console.error(error);
     res.status(status).json({
       message:
         error instanceof multer.MulterError
           ? `Upload up to 5 PDFs, each no larger than ${maxUploadBytes / 1024 / 1024} MB.`
-          : status === 500
-            ? "Something went wrong. Please try again."
-            : error.message,
+          : error.name === "VersionError"
+            ? "Registration changed. Refresh and try again."
+            : status === 500
+              ? "Something went wrong. Please try again."
+              : error.message,
     });
   });
   return app;

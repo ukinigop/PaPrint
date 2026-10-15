@@ -2,9 +2,15 @@ import multer from "multer";
 import { z } from "zod";
 import { PDFDocument } from "pdf-lib";
 import { Shop, User, Order, Upload } from "./models.js";
-import { nextStatus } from "./domain.js";
+import {
+  advanceOrder,
+  confirmPayment,
+  endOrder,
+  publicShop,
+} from "./fulfillment.js";
+import { safeRegistration } from "./admin.js";
 const fail = (status, message) => Object.assign(new Error(message), { status });
-const publicShop = { path: "shop", select: "-documents -email -owner" };
+
 const schema = z
   .object({
     name: z.string().trim().min(2).max(100),
@@ -39,15 +45,7 @@ export function installWorkspace(
       throw fail(403, "Your shop must be approved before accepting orders.");
     next();
   };
-  const safe = (shop) =>
-    shop && {
-      ...shop.toObject(),
-      documents: shop.documents.map((d) => ({
-        _id: d.id,
-        name: d.name,
-        size: d.size,
-      })),
-    };
+  const safe = safeRegistration;
   app.get("/api/workspace", auth, owner, (req, res) =>
     res.json(safe(req.shop)),
   );
@@ -55,7 +53,10 @@ export function installWorkspace(
     const parsed = schema.safeParse(req.body);
     if (!parsed.success)
       throw fail(400, "Fill in the business details and valid printing rates.");
-    if (req.shop && req.shop.registrationStatus !== "draft")
+    if (
+      req.shop &&
+      !["draft", "rejected"].includes(req.shop.registrationStatus)
+    )
       throw fail(
         409,
         "Submitted registrations cannot be edited while under review.",
@@ -76,6 +77,52 @@ export function installWorkspace(
       });
     res.json(safe(req.shop));
   });
+  app.patch(
+    "/api/workspace/operations",
+    auth,
+    owner,
+    registered,
+    approved,
+    async (req, res) => {
+      const parsed = schema
+        .pick({ hours: true, contact: true, monoRate: true, colorRate: true })
+        .extend({ open: z.boolean() })
+        .strict()
+        .safeParse(req.body);
+      if (!parsed.success)
+        throw fail(400, "Enter valid operating hours, contact and rates.");
+      const updated = await Shop.findOneAndUpdate(
+        {
+          _id: req.shop.id,
+          owner: req.user.id,
+          registrationStatus: "approved",
+        },
+        { $set: parsed.data, $inc: { __v: 1 } },
+        { new: true, runValidators: true },
+      );
+      if (!updated) throw fail(409, "Shop changed. Refresh and try again.");
+      res.json(safe(updated));
+    },
+  );
+  app.delete(
+    "/api/workspace/documents/:documentId",
+    auth,
+    owner,
+    registered,
+    async (req, res) => {
+      if (!["draft", "rejected"].includes(req.shop.registrationStatus))
+        throw fail(409, "Registration documents are locked.");
+      if (!/^[a-f\d]{24}$/i.test(req.params.documentId))
+        throw fail(400, "Invalid document.");
+      const document = req.shop.documents.id(req.params.documentId);
+      if (!document) throw fail(404, "Document not found.");
+      const location = document.path;
+      document.deleteOne();
+      await req.shop.save();
+      await fileStorage.remove(location);
+      res.json(safe(req.shop));
+    },
+  );
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: maxUploadBytes, files: 3 },
@@ -87,7 +134,7 @@ export function installWorkspace(
     registered,
     upload.array("files", 3),
     async (req, res) => {
-      if (req.shop.registrationStatus !== "draft")
+      if (!["draft", "rejected"].includes(req.shop.registrationStatus))
         throw fail(409, "Registration is already submitted.");
       if (
         !req.files?.length ||
@@ -131,7 +178,7 @@ export function installWorkspace(
     owner,
     registered,
     async (req, res) => {
-      if (req.shop.registrationStatus !== "draft")
+      if (!["draft", "rejected"].includes(req.shop.registrationStatus))
         throw fail(409, "Registration is already submitted.");
       if (!req.body.confirm || req.shop.documents.length < 3)
         throw fail(
@@ -139,6 +186,8 @@ export function installWorkspace(
           "Add your permit, registration proof, and identification PDFs, then confirm the details.",
         );
       req.shop.registrationStatus = "submitted";
+      req.shop.submissionVersion = (req.shop.submissionVersion || 0) + 1;
+      req.shop.rejectionReason = "";
       await req.shop.save();
       res.json(safe(req.shop));
     },
@@ -157,28 +206,14 @@ export function installWorkspace(
     registered,
     approved,
     async (req, res) => {
-      if (!/^[a-f\d]{24}$/i.test(req.params.id))
-        throw fail(400, "Invalid order.");
-      const order = await Order.findOne({
-        _id: req.params.id,
-        shop: req.shop.id,
-      });
-      if (!order) throw fail(404, "Order not found.");
-      if (nextStatus[order.status] !== req.body.status)
-        throw fail(409, "Refresh the order before changing its status.");
-      if (req.body.status === "Collected" && order.paymentStatus !== "paid")
-        throw fail(409, "Confirm pickup payment before marking collected.");
-      const change = { status: req.body.status };
-      if (req.body.status === "Ready for pickup")
-        Object.assign(change, { readyAt: new Date(), pushState: "pending" });
-      const updated = await Order.findOneAndUpdate(
-        { _id: order.id, status: order.status },
-        change,
-        { new: true },
-      ).populate(publicShop);
-      if (!updated) throw fail(409, "Order changed. Refresh and try again.");
-      if (updated.pushState === "pending") await notifyPickup(updated);
-      res.json(updated);
+      res.json(
+        await advanceOrder(
+          req.shop.id,
+          req.params.id,
+          req.body.status,
+          notifyPickup,
+        ),
+      );
     },
   );
   app.post(
@@ -188,21 +223,26 @@ export function installWorkspace(
     registered,
     approved,
     async (req, res) => {
-      if (!/^[a-f\d]{24}$/i.test(req.params.id))
-        throw fail(400, "Invalid order.");
-      const updated = await Order.findOneAndUpdate(
-        {
-          _id: req.params.id,
-          shop: req.shop.id,
-          status: "Ready for pickup",
-          paymentMethod: "pickup",
-        },
-        { paymentStatus: "paid" },
-        { new: true },
-      ).populate(publicShop);
-      if (!updated)
-        throw fail(409, "Confirm payment when this order is ready for pickup.");
-      res.json(updated);
+      res.json(await confirmPayment(req.shop.id, req.params.id));
+    },
+  );
+  app.post(
+    "/api/workspace/orders/:id/reject",
+    auth,
+    owner,
+    registered,
+    approved,
+    async (req, res) => {
+      res.json(
+        await endOrder({
+          id: req.params.id,
+          scope: { shop: req.shop.id },
+          status: "Rejected",
+          actorId: req.user.id,
+          actorRole: "owner",
+          body: req.body,
+        }),
+      );
     },
   );
   app.get(

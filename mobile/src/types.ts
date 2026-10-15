@@ -3,7 +3,7 @@ export type Account = {
   name: string;
   email: string;
   phone: string;
-  accountType: "customer" | "owner";
+  accountType: "customer" | "owner" | "admin";
   savedShops: string[];
   defaultPaper: "A4" | "Letter" | "Legal";
   reducedMotion: boolean;
@@ -21,7 +21,16 @@ export type Shop = {
   colorRate: number;
   contact?: string;
   hours?: string;
-  registrationStatus?: "draft" | "submitted" | "approved";
+  registrationStatus?: "draft" | "submitted" | "approved" | "rejected";
+  submissionVersion?: number;
+  rejectionReason?: string;
+  reviews?: {
+    reviewer: string;
+    decision: string;
+    reason: string;
+    at: string;
+    submissionVersion: number;
+  }[];
   representative?: string;
   email?: string;
   documents?: { _id: string; name: string; size: number }[];
@@ -50,7 +59,19 @@ export type Order = {
   paymentMethod?: "pickup" | "gcash";
   paymentStatus?: "paid" | "unpaid";
   pages: number;
-  status: "Queued" | "Printing" | "Ready for pickup" | "Collected";
+  status:
+    | "Queued"
+    | "Printing"
+    | "Ready for pickup"
+    | "Collected"
+    | "Cancelled"
+    | "Rejected";
+  outcome?: {
+    actorId: string;
+    actorRole: "customer" | "owner" | "shop";
+    at: string;
+    reason: string;
+  };
   pickupCode: string;
   createdAt: string;
   readyAt?: string;

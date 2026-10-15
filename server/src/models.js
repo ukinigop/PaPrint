@@ -8,7 +8,7 @@ export const User = model(
     phone: { type: String, default: "" },
     accountType: {
       type: String,
-      enum: ["customer", "owner"],
+      enum: ["customer", "owner", "admin"],
       default: "customer",
     },
     savedShops: [{ type: Schema.Types.ObjectId, ref: "Shop" }],
@@ -31,33 +31,47 @@ export const AccountSession = model(
 );
 export const Shop = model(
   "Shop",
-  new Schema({
-    name: String,
-    address: String,
-    distance: String,
-    estimate: String,
-    rating: Number,
-    open: Boolean,
-    accent: String,
-    monoRate: Number,
-    colorRate: Number,
-    owner: {
-      type: Schema.Types.ObjectId,
-      ref: "User",
-      unique: true,
-      sparse: true,
+  new Schema(
+    {
+      name: String,
+      address: String,
+      distance: String,
+      estimate: String,
+      rating: Number,
+      open: Boolean,
+      accent: String,
+      monoRate: Number,
+      colorRate: Number,
+      owner: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        unique: true,
+        sparse: true,
+      },
+      registrationStatus: {
+        type: String,
+        enum: ["draft", "submitted", "approved", "rejected"],
+        default: "approved",
+      },
+      contact: String,
+      email: String,
+      hours: String,
+      representative: String,
+      submissionVersion: { type: Number, default: 0 },
+      rejectionReason: String,
+      reviews: [
+        {
+          reviewer: { type: Schema.Types.ObjectId, ref: "User" },
+          decision: String,
+          reason: String,
+          at: Date,
+          submissionVersion: Number,
+        },
+      ],
+      documents: [{ name: String, path: String, size: Number }],
     },
-    registrationStatus: {
-      type: String,
-      enum: ["draft", "submitted", "approved"],
-      default: "approved",
-    },
-    contact: String,
-    email: String,
-    hours: String,
-    representative: String,
-    documents: [{ name: String, path: String, size: Number }],
-  }),
+    { optimisticConcurrency: true },
+  ),
 );
 export const Upload = model(
   "Upload",
@@ -100,10 +114,33 @@ export const Order = model(
     pages: Number,
     status: {
       type: String,
-      enum: ["Queued", "Printing", "Ready for pickup", "Collected"],
+      enum: [
+        "Queued",
+        "Printing",
+        "Ready for pickup",
+        "Collected",
+        "Cancelled",
+        "Rejected",
+      ],
       default: "Queued",
     },
     requestKey: String,
+    outcome: {
+      type: new Schema(
+        {
+          actorId: { type: String, required: true },
+          actorRole: {
+            type: String,
+            enum: ["customer", "owner", "shop"],
+            required: true,
+          },
+          at: { type: Date, required: true },
+          reason: { type: String, default: "" },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
     pickupCode: String,
     paymentMethod: {
       type: String,

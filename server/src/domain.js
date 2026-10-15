@@ -17,6 +17,7 @@ export const bookingSchema = z.object({
   notes: z.string().max(500).default(""),
   requestKey: z.string().uuid(),
   paymentMethod: z.enum(["pickup", "gcash"]).default("pickup"),
+  expectedAmount: z.number().nonnegative().optional(),
 });
 export function price(shop, files, settings) {
   const total = files.reduce((sum, f) => sum + f.pages, 0);

@@ -70,7 +70,7 @@ This account is created only by npm run demo in its isolated local database. The
 
 Open the workspace order to start printing, mark Done, confirm the sample pickup payment, and mark collected. Log back into your customer account to see the updates. No real money is processed.
 
-To test business onboarding separately, create another Shop owner account. Fill in business details and upload three sample PDFs, then submit for review. New registrations stay under review; the seeded demo owner lets you test fulfillment without an approval dashboard.
+To test business onboarding separately, create another Shop owner account. Fill in business details and upload three sample PDFs, then submit for review. Use the admin approval dashboard to reject/correct/resubmit or approve the partner, then open the approved shop under Shop profile. Follow [pilot setup](PILOT_SETUP.md) to promote a separate reviewer account. The seeded demo owner remains available for quick fulfillment checks.
 
 ## Optional: try a phone
 

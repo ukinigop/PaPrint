@@ -1,5 +1,18 @@
+import {
+  canEndOrder,
+  isActiveOrder,
+  isCancelledOrRejected,
+  paymentLabel,
+} from "./orderStatus";
+import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  Switch,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
@@ -48,10 +61,12 @@ export function Workspace({ view, id }: { view: string; id: string }) {
     [hours, setHours] = useState(shop?.hours || "8:00 AM – 6:00 PM"),
     [mono, setMono] = useState(String(shop?.monoRate || 2)),
     [color, setColor] = useState(String(shop?.colorRate || 8));
+  const [open, setOpen] = useState(shop?.open || false);
   const hydrated = useRef(shop?._id);
   useEffect(() => {
     if (shop && hydrated.current !== shop._id) {
       hydrated.current = shop._id;
+      setOpen(shop.open);
       setName(shop.name);
       setRepresentative(shop.representative || app.user!.name);
       setAddress(shop.address);
@@ -66,10 +81,15 @@ export function Workspace({ view, id }: { view: string; id: string }) {
     [confirm, setConfirm] = useState(false),
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All orders");
+  const [rejecting, setRejecting] = useState<{
+    id: string;
+    reason: string;
+  } | null>(null);
   const order = app.ownerOrders.find((o) => o._id === id);
   const registering =
     view === "Business registration" ||
-    (view === "Overview" && (!shop || shop.registrationStatus === "draft"));
+    (view === "Overview" &&
+      (!shop || ["draft", "rejected"].includes(shop.registrationStatus || "")));
   const title = order
     ? "Order " + orderCode(order._id)
     : registering
@@ -283,6 +303,13 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                 }
                 onChange={(v) => setReview(v === "03 Review & submit")}
               />
+              {shop?.rejectionReason ? (
+                <Card>
+                  <Text accessibilityRole="alert" style={s.body}>
+                    Changes requested: {shop.rejectionReason}
+                  </Text>
+                </Card>
+              ) : null}
               {shop?.registrationStatus === "submitted" ? (
                 <Card>
                   <Pill>Under review</Pill>
@@ -292,8 +319,8 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                     becomes visible after approval.
                   </Text>
                   <Text style={s.small}>
-                    Approval is handled by the PaPrint team. This MVP has no
-                    public approval dashboard yet.
+                    The PaPrint team will review your registration and
+                    documents. Refresh to see the latest decision.
                   </Text>
                 </Card>
               ) : shop?.registrationStatus === "approved" ? (
@@ -312,7 +339,11 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                 >
                   <Card style={fieldColumn}>
                     <Text style={s.cardTitle}>{shop?.name || name}</Text>
-                    <Pill>Draft</Pill>
+                    <Pill>
+                      {shop?.registrationStatus === "rejected"
+                        ? "Changes requested"
+                        : "Draft"}
+                    </Pill>
                     <Pair
                       label="Owner"
                       value={shop?.representative || representative}
@@ -470,9 +501,23 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                         {app.maxUploadBytes / 1024 / 1024} MB each.
                       </Text>
                       {shop?.documents?.map((d) => (
-                        <Text key={d._id} style={s.small}>
-                          ✓ {d.name}
-                        </Text>
+                        <View key={d._id} style={{ gap: 8 }}>
+                          <Text style={s.small}>✓ {d.name}</Text>
+                          <Button
+                            title={"Remove " + d.name}
+                            secondary
+                            loading={busy}
+                            onPress={() =>
+                              void run(async () => {
+                                const next = await api.request<Shop>(
+                                  "/workspace/documents/" + d._id,
+                                  { method: "DELETE" },
+                                );
+                                app.setWorkspace(next);
+                              })
+                            }
+                          />
+                        </View>
                       ))}
                       <Button
                         title="Upload documents"
@@ -499,6 +544,9 @@ export function Workspace({ view, id }: { view: string; id: string }) {
           ) : order ? (
             <>
               <LinkText onPress={() => go("Orders")}>‹ Back to orders</LinkText>
+              {isCancelledOrRejected(order) ? (
+                <OrderOutcome order={order} />
+              ) : null}
               <View
                 style={{
                   flexDirection: wide ? "row" : "column",
@@ -550,6 +598,65 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                   <Text style={s.cardTitle}>Production status</Text>
                   <Pill>{stage(order.status)}</Pill>
                   {order.notes && <Text style={s.body}>{order.notes}</Text>}
+                  {canEndOrder(order) &&
+                    shop?.registrationStatus === "approved" &&
+                    (rejecting?.id === order._id ? (
+                      <EndOrderPanel
+                        reject
+                        reason={rejecting.reason}
+                        onReason={(reason) =>
+                          setRejecting({ id: order._id, reason })
+                        }
+                        busy={busy}
+                        onKeep={() => setRejecting(null)}
+                        onConfirm={() =>
+                          void run(async () => {
+                            let updated: Order;
+                            try {
+                              updated = await api.request<Order>(
+                                "/workspace/orders/" + order._id + "/reject",
+                                {
+                                  method: "POST",
+                                  body: JSON.stringify({
+                                    reason: rejecting.reason,
+                                  }),
+                                },
+                              );
+                            } catch (error) {
+                              if (
+                                (error as { status?: number }).status === 409
+                              ) {
+                                setRejecting(null);
+                                await app.refresh(true).catch(() => {});
+                                throw new Error(
+                                  "The order stage changed. Rejection is only available before printing. Review the latest status.",
+                                );
+                              }
+                              throw error;
+                            }
+                            app.setOwnerOrders((list) =>
+                              list.map((item) =>
+                                item._id === updated._id ? updated : item,
+                              ),
+                            );
+                            setRejecting(null);
+                            void app
+                              .refresh(true)
+                              .catch((error) => setError(error.message));
+                          })
+                        }
+                      />
+                    ) : (
+                      <Button
+                        title="Reject order"
+                        secondary
+                        disabled={busy}
+                        onPress={() =>
+                          setRejecting({ id: order._id, reason: "" })
+                        }
+                      />
+                    ))}
+
                   {order.status === "Queued" || order.status === "Printing" ? (
                     <Button
                       title={
@@ -573,54 +680,63 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                 </Card>
                 <Card style={wide ? { width: 330 } : { width: "100%" }}>
                   <Text style={s.cardTitle}>Payment</Text>
-                  <Pair label="Total" value={money(order.amount)} />
-                  <Pill>
-                    {order.paymentStatus === "paid"
-                      ? "Paid"
-                      : "Pay on pickup · Unpaid"}
-                  </Pill>
-                  <Text style={s.cardTitle}>
-                    Pickup code: {order.pickupCode}
-                  </Text>
-                  {order.status === "Ready for pickup" &&
-                    order.paymentStatus !== "paid" && (
+                  <Pair
+                    label={
+                      isCancelledOrRejected(order)
+                        ? "Original quoted total"
+                        : "Total"
+                    }
+                    value={money(order.amount)}
+                  />
+                  <Pill>{paymentLabel(order)}</Pill>
+                  {!isCancelledOrRejected(order) && (
+                    <>
+                      <Text style={s.cardTitle}>
+                        Pickup code: {order.pickupCode}
+                      </Text>
+                      {order.status === "Ready for pickup" &&
+                        order.paymentStatus !== "paid" && (
+                          <Button
+                            title="Confirm pickup payment"
+                            secondary
+                            loading={busy}
+                            onPress={() =>
+                              void run(async () => {
+                                const updated = await api.request<Order>(
+                                  "/workspace/orders/" + order._id + "/payment",
+                                  { method: "POST" },
+                                );
+                                app.setOwnerOrders((previous) =>
+                                  previous.map((item) =>
+                                    item._id === updated._id ? updated : item,
+                                  ),
+                                );
+                              })
+                            }
+                          />
+                        )}
                       <Button
-                        title="Confirm pickup payment"
+                        title={
+                          order.status === "Collected"
+                            ? "Collected"
+                            : "Mark as collected"
+                        }
                         secondary
+                        disabled={
+                          order.status !== "Ready for pickup" ||
+                          order.paymentStatus !== "paid"
+                        }
                         loading={busy}
                         onPress={() =>
-                          void run(async () => {
-                            const updated = await api.request<Order>(
-                              "/workspace/orders/" + order._id + "/payment",
-                              { method: "POST" },
-                            );
-                            app.setOwnerOrders((previous) =>
-                              previous.map((item) =>
-                                item._id === updated._id ? updated : item,
-                              ),
-                            );
-                          })
+                          void run(() => advance(order, "Collected"))
                         }
                       />
-                    )}
-                  <Button
-                    title={
-                      order.status === "Collected"
-                        ? "Collected"
-                        : "Mark as collected"
-                    }
-                    secondary
-                    disabled={
-                      order.status !== "Ready for pickup" ||
-                      order.paymentStatus !== "paid"
-                    }
-                    loading={busy}
-                    onPress={() => void run(() => advance(order, "Collected"))}
-                  />
-                  <Text style={s.small}>
-                    Available after status is Done and pickup payment is
-                    confirmed.
-                  </Text>
+                      <Text style={s.small}>
+                        Available after status is Done and pickup payment is
+                        confirmed.
+                      </Text>
+                    </>
+                  )}
                 </Card>
               </View>
             </>
@@ -631,8 +747,9 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                   <Card key={label} style={{ flexGrow: 1, minWidth: 130 }}>
                     <Text style={s.heading}>
                       {String(
-                        app.ownerOrders.filter((o) => stage(o.status) === label)
-                          .length,
+                        app.ownerOrders.filter(
+                          (o) => isActiveOrder(o) && stage(o.status) === label,
+                        ).length,
                       ).padStart(2, "0")}
                     </Text>
                     <Text style={s.body}>{label}</Text>
@@ -677,6 +794,8 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                   "Printing",
                   "Done",
                   "Collected",
+                  "Cancelled",
+                  "Rejected",
                 ]}
                 value={filter}
                 onChange={setFilter}
@@ -719,8 +838,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                       {o.files[0]?.name}
                     </Text>
                     <Text style={[s.small, wide && { flex: 1 }]}>
-                      {money(o.amount)} ·{" "}
-                      {o.paymentStatus === "paid" ? "Paid" : "On pickup"}
+                      {money(o.amount)} · {paymentLabel(o)}
                     </Text>
                     <Text style={[s.body, wide && { flex: 1 }]}>
                       {stage(o.status)}
@@ -754,6 +872,74 @@ export function Workspace({ view, id }: { view: string; id: string }) {
               <Pair label="Hours" value={shop?.hours || "Not set"} />
               <Pair label="Contact" value={shop?.contact || "Not set"} />
               <Pill>{shop?.registrationStatus || "Not registered"}</Pill>
+              {shop?.registrationStatus === "approved" && (
+                <>
+                  <Text style={s.cardTitle}>Operating settings</Text>
+                  <Text style={s.small}>
+                    Business identity and registration documents are locked.
+                    Closing stops new bookings; existing orders remain
+                    available.
+                  </Text>
+                  <Field
+                    label="Business hours"
+                    value={hours}
+                    onChangeText={setHours}
+                  />
+                  <Field
+                    label="Contact number"
+                    value={contact}
+                    onChangeText={setContact}
+                    keyboardType="phone-pad"
+                  />
+                  <Field
+                    label="B&W / page (₱)"
+                    value={mono}
+                    onChangeText={setMono}
+                    keyboardType="decimal-pad"
+                  />
+                  <Field
+                    label="Color / page (₱)"
+                    value={color}
+                    onChangeText={setColor}
+                    keyboardType="decimal-pad"
+                  />
+                  <View style={s.between}>
+                    <Text style={s.body}>
+                      {open ? "Open for bookings" : "Closed for bookings"}
+                    </Text>
+                    <Switch
+                      accessibilityLabel="Open for bookings"
+                      value={open}
+                      onValueChange={setOpen}
+                      disabled={busy}
+                    />
+                  </View>
+                  <Button
+                    title="Save operating settings"
+                    loading={busy}
+                    onPress={() =>
+                      void run(async () => {
+                        const next = await api.request<Shop>(
+                          "/workspace/operations",
+                          {
+                            method: "PATCH",
+                            body: JSON.stringify({
+                              hours,
+                              contact,
+                              monoRate: Number(mono),
+                              colorRate: Number(color),
+                              open,
+                            }),
+                          },
+                        );
+                        app.setWorkspace(next);
+                        setNotice("Operating settings saved.");
+                        await app.refresh();
+                      })
+                    }
+                  />
+                </>
+              )}
               <LinkText onPress={() => go("Business registration")}>
                 View business registration →
               </LinkText>

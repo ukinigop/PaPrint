@@ -75,7 +75,13 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
       const user = await api.acceptAccount(result);
       setUser(user);
       setPassword("");
-      router.replace(user.accountType === "owner" ? "/workspace" : "/home");
+      router.replace(
+        user.accountType === "admin"
+          ? "/admin"
+          : user.accountType === "owner"
+            ? "/workspace"
+            : "/home",
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Please try again.");
     } finally {

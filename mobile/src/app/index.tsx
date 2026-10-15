@@ -7,7 +7,13 @@ export default function Index() {
   return (
     <Redirect
       href={
-        !user ? "/login" : user.accountType === "owner" ? "/workspace" : "/home"
+        !user
+          ? "/login"
+          : user.accountType === "admin"
+            ? "/admin"
+            : user.accountType === "owner"
+              ? "/workspace"
+              : "/home"
       }
     />
   );
