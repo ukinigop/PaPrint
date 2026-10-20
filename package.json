@@ -5,6 +5,7 @@
     "mobile": "npm --prefix mobile start",
     "server": "npm --prefix server run dev",
     "test": "npm --prefix server test",
+    "test:frontend": "npm --prefix mobile test",
     "typecheck": "npm --prefix mobile run typecheck",
     "demo": "npm --prefix server run demo",
     "build": "npm --prefix mobile run build:web"

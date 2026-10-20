@@ -88,7 +88,7 @@ Scan the terminal QR code with your phone. Allow Node.js on your private network
 ## Current limits
 
 - Valid unlocked PDFs only, up to five per order; 15 MB per PDF in the standalone demo, 3 MB on Vercel.
-- GCash is a placeholder. Use pay on pickup.
+- Checkout supports cash payment on pickup only. The owner confirms payment before collection.
 - Shop approval is manual; the demo owner is already linked to a sample shop.
 - Background push needs Expo project credentials. Order updates work in the app without them.
 - The demo runs separately on each computer. Groupmates do not share accounts or orders.

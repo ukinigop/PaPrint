@@ -2,6 +2,28 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import type { DocumentPickerAsset } from "expo-document-picker";
 import type { PrintFile, Account } from "./types";
+import { createSessionScope, StaleSessionError } from "./customerFlow";
+const sessions = createSessionScope();
+export const captureSession = sessions.capture;
+function requireCurrent(current: () => boolean) {
+  if (!current()) throw new StaleSessionError();
+}
+// Serialize credential writes so a slow removal cannot erase a newer login.
+let credentialWrite = Promise.resolve();
+function persistToken(value: string | null) {
+  const write = async () => {
+    if (Platform.OS === "web") {
+      if (value === null) await AsyncStorage.removeItem("paprint.accountToken");
+      else await AsyncStorage.setItem("paprint.accountToken", value);
+    } else {
+      const storage = await import("expo-secure-store");
+      if (value === null) await storage.deleteItemAsync("paprint.accountToken");
+      else await storage.setItemAsync("paprint.accountToken", value);
+    }
+  };
+  credentialWrite = credentialWrite.catch(() => {}).then(write);
+  return credentialWrite;
+}
 export let baseUrl =
   process.env.EXPO_PUBLIC_API_URL ||
   (Platform.OS === "web" &&
@@ -27,46 +49,47 @@ async function savedAccountToken() {
   );
 }
 export async function acceptAccount(result: { token: string; user: Account }) {
-  if (Platform.OS === "web")
-    await AsyncStorage.setItem("paprint.accountToken", result.token);
-  else
-    await (
-      await import("expo-secure-store")
-    ).setItemAsync("paprint.accountToken", result.token);
+  sessions.invalidate();
+  const current = captureSession();
   token = result.token;
   accountSession = true;
+  await persistToken(result.token);
+  requireCurrent(current);
   return result.user;
 }
 export async function clearAccount() {
+  sessions.invalidate();
   token = "";
   accountSession = false;
-  if (Platform.OS === "web")
-    await AsyncStorage.removeItem("paprint.accountToken");
-  else
-    await (
-      await import("expo-secure-store")
-    ).deleteItemAsync("paprint.accountToken");
+  await persistToken(null);
 }
 export async function restoreAccount() {
   await initialize();
   return accountSession ? request<Account>("/auth/me") : null;
 }
 export async function signOut() {
-  try {
-    await request("/device", { method: "DELETE" });
-    await request("/auth/logout", { method: "POST" });
-  } finally {
-    await clearAccount();
+  const previousToken = token;
+  // Stop old requests immediately; revoke using the captured credentials.
+  const clearing = clearAccount();
+  const current = captureSession();
+  await clearing;
+  requireCurrent(current);
+  if (previousToken) {
+    await request("/device", { method: "DELETE" }, previousToken);
+    requireCurrent(current);
+    await request("/auth/logout", { method: "POST" }, previousToken);
   }
 }
 export async function initialize() {
+  const current = captureSession();
   const stored = await AsyncStorage.multiGet([
     "paprint.api",
     "paprint.session",
   ]);
+  const accountToken = await savedAccountToken();
+  requireCurrent(current);
   baseUrl = stored[0][1] || baseUrl;
   token = stored[1][1] || "";
-  const accountToken = await savedAccountToken();
   accountSession = !!accountToken;
   if (accountToken) token = accountToken;
 }
@@ -89,6 +112,7 @@ export async function request<T>(
   options: RequestInit = {},
   shopToken?: string,
 ): Promise<T> {
+  const current = captureSession();
   const requestToken = shopToken || token;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
@@ -104,7 +128,10 @@ export async function request<T>(
         ...options.headers,
       },
     });
-    const data = await response.json();
+    const data = await response.json().catch(() => {
+      throw new Error("PaPrint returned an unreadable response. Please retry.");
+    });
+    requireCurrent(current);
     if (!response.ok) {
       if (
         response.status === 401 &&
@@ -112,8 +139,9 @@ export async function request<T>(
         requestToken === token &&
         !shopToken
       ) {
-        await clearAccount();
+        const clearing = clearAccount();
         expired?.();
+        await clearing;
       }
       throw Object.assign(new Error(data.message || "Request failed."), {
         status: response.status,
@@ -124,6 +152,7 @@ export async function request<T>(
     }
     return data;
   } catch (error) {
+    requireCurrent(current);
     if (
       error instanceof TypeError ||
       (error instanceof Error && error.name === "AbortError")
@@ -148,6 +177,7 @@ export async function uploadFiles<T = PrintFile[]>(
   assets: DocumentPickerAsset[],
   route = "/uploads",
 ): Promise<T> {
+  const current = captureSession();
   const form = new FormData();
   for (const asset of assets) {
     if (Platform.OS === "web")
@@ -162,6 +192,7 @@ export async function uploadFiles<T = PrintFile[]>(
       form.append("files", new File(asset.uri), asset.name);
     }
   }
+  requireCurrent(current);
   return request(route, { method: "POST", body: form });
 }
 export async function openPrintFile(
@@ -181,13 +212,17 @@ export async function openPrivatePdf(
   fileId: string,
   shopToken = "",
 ) {
+  const current = captureSession();
+  const downloadToken = shopToken || token;
   const url = `${baseUrl}/api${route}`;
   if (Platform.OS === "web") {
     const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${shopToken || token}` },
+      headers: { Authorization: `Bearer ${downloadToken}` },
     });
     if (!response.ok) throw new Error("Could not download this document.");
-    const blobUrl = URL.createObjectURL(await response.blob());
+    const blob = await response.blob();
+    requireCurrent(current);
+    const blobUrl = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = blobUrl;
     anchor.download = `paprint-${fileId}.pdf`;
@@ -196,19 +231,22 @@ export async function openPrivatePdf(
   } else {
     const { File, Paths } = await import("expo-file-system");
     const Sharing = await import("expo-sharing");
+    requireCurrent(current);
     const file = await File.downloadFileAsync(
       url,
       new File(Paths.cache, `paprint-${fileId}.pdf`),
       {
-        headers: { Authorization: `Bearer ${shopToken || token}` },
+        headers: { Authorization: `Bearer ${downloadToken}` },
         idempotent: true,
       },
     );
-    if (await Sharing.isAvailableAsync())
+    requireCurrent(current);
+    if (await Sharing.isAvailableAsync()) {
+      requireCurrent(current);
       await Sharing.shareAsync(file.uri, {
         mimeType: "application/pdf",
         UTI: "com.adobe.pdf",
       });
-    else throw new Error("File sharing is unavailable on this device.");
+    } else throw new Error("File sharing is unavailable on this device.");
   }
 }

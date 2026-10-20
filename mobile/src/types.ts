@@ -10,6 +10,7 @@ export type Account = {
 };
 export type Shop = {
   _id: string;
+  __v?: number;
   name: string;
   address: string;
   distance: string;

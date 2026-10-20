@@ -72,7 +72,10 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
           }),
         },
       );
-      const user = await api.acceptAccount(result);
+      const acceptance = api.acceptAccount(result);
+      const current = api.captureSession();
+      const user = await acceptance;
+      if (!current()) return;
       setUser(user);
       setPassword("");
       router.replace(
@@ -127,11 +130,13 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
               </Text>
             </Card>
           )}
-          <Segments
-            values={["Customer", "Shop owner"] as const}
-            value={role}
-            onChange={setRole}
-          />
+          {signup && (
+            <Segments
+              values={["Customer", "Shop owner"] as const}
+              value={role}
+              onChange={setRole}
+            />
+          )}
           {!signup && (
             <Text style={s.small}>
               Log in with the email you registered. Your account opens the right
@@ -202,6 +207,7 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
               <Pressable
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: agree }}
+                aria-checked={agree}
                 onPress={() => setAgree(!agree)}
                 style={[s.row, { minHeight: 44 }]}
               >

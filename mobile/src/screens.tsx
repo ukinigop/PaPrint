@@ -7,9 +7,11 @@ import {
 } from "./orderStatus";
 import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
 import { Admin } from "./Admin";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import {
+  KeyboardAvoidingView,
   Linking,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -45,6 +47,8 @@ import { useApp } from "./state";
 import * as api from "./api";
 import type { Order, Shop } from "./types";
 import { Workspace } from "./Workspace";
+import { StaleSessionError, uploadBatch, placeBooking } from "./customerFlow";
+import { useQuote } from "./useQuote";
 
 type Tab = "Home" | "Shops" | "Orders" | "Profile";
 const tabs = ["Home", "Shops", "Orders", "Profile"] as const;
@@ -59,25 +63,31 @@ function Frame({
   subtitle,
   tab,
   back,
+  scrollRef,
   children,
 }: {
   title: string;
   subtitle?: string;
   tab?: Tab;
   back?: string;
+  scrollRef?: React.RefObject<ScrollView | null>;
   children: React.ReactNode;
 }) {
   const app = useApp();
   return (
     <SafeAreaView style={s.safe}>
-      <View style={s.app}>
+      <KeyboardAvoidingView
+        style={s.app}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <ScrollView
+          ref={scrollRef}
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
               refreshing={app.loading}
               onRefresh={() => {
-                void app.refresh().catch((e) => app.setError(e.message));
+                void app.refresh(true);
               }}
             />
           }
@@ -103,16 +113,30 @@ function Frame({
             )}
           </View>
           {app.error ? (
-            <View accessibilityRole="alert" style={s.error}>
+            <View
+              accessibilityRole="alert"
+              style={[s.error, { flexDirection: "column" }]}
+            >
               <Text style={{ color: colors.error }}>{app.error}</Text>
-              <LinkText
-                onPress={() => {
-                  void app.refresh().catch((e) => app.setError(e.message));
-                }}
-              >
-                Retry
-              </LinkText>
+              <LinkText onPress={() => app.setError("")}>Dismiss</LinkText>
             </View>
+          ) : null}
+          {app.refreshError ? (
+            <Card>
+              <Text accessibilityRole="alert" style={{ color: colors.error }}>
+                {app.refreshError}
+              </Text>
+              <Text style={s.small}>
+                Your last loaded orders are still shown. Refresh to check the
+                latest status.
+              </Text>
+              <Button
+                title="Retry refresh"
+                secondary
+                loading={app.loading}
+                onPress={() => void app.refresh(true)}
+              />
+            </Card>
           ) : null}
           {children}
           {!tab && (
@@ -158,7 +182,7 @@ function Frame({
             ))}
           </View>
         )}
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -171,10 +195,12 @@ function useAction() {
     lock.current = true;
     setBusy(true);
     setError("");
+    const current = api.captureSession();
     try {
       await action();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Please try again.");
+      if (current() && !(e instanceof StaleSessionError))
+        setError(e instanceof Error ? e.message : "Please try again.");
     } finally {
       lock.current = false;
       setBusy(false);
@@ -198,9 +224,7 @@ function ShopCard({ shop, compact }: { shop: Shop; compact?: boolean }) {
           </View>
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={s.cardTitle}>{shop.name}</Text>
-            <Text style={s.small}>
-              {shop.address} · {shop.distance}
-            </Text>
+            <Text style={s.small}>{shop.address}</Text>
           </View>
         </View>
         {!compact && (
@@ -247,7 +271,7 @@ function OrderCard({ order }: { order: Order }) {
   );
 }
 function Home() {
-  const { user, shops, orders } = useApp();
+  const { user, shops, orders, loading } = useApp();
   const active = orders.find(isActiveOrder);
   return (
     <Frame
@@ -280,29 +304,30 @@ function Home() {
           </Text>
         </Card>
       )}
-      <Text style={s.sectionTitle}>Nearby partners</Text>
+      <Text style={s.sectionTitle}>Naga partners</Text>
       {shops.slice(0, 1).map((shop) => (
         <ShopCard key={shop._id} shop={shop} compact />
       ))}
+      {!shops.length && (
+        <Text style={s.small}>
+          {loading
+            ? "Loading partner shops…"
+            : "Partner shops will appear here once they are approved."}
+        </Text>
+      )}
       <LinkText onPress={() => router.push("/shops")}>See all shops →</LinkText>
     </Frame>
   );
 }
 function Shops() {
-  const { shops } = useApp();
+  const { shops, loading } = useApp();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All shops");
-  const result = shops
-    .filter(
-      (s) =>
-        (filter !== "Open now" || s.open) &&
-        (s.name + " " + s.address).toLowerCase().includes(query.toLowerCase()),
-    )
-    .sort((a, b) =>
-      filter === "Nearest"
-        ? parseFloat(a.distance) - parseFloat(b.distance)
-        : 0,
-    );
+  const result = shops.filter(
+    (s) =>
+      (filter !== "Open now" || s.open) &&
+      (s.name + " " + s.address).toLowerCase().includes(query.toLowerCase()),
+  );
   return (
     <Frame
       title="Shops"
@@ -316,7 +341,7 @@ function Shops() {
         onChangeText={setQuery}
       />
       <Segments
-        values={["All shops", "Open now", "Nearest"]}
+        values={["All shops", "Open now"]}
         value={filter}
         onChange={setFilter}
       />
@@ -326,7 +351,13 @@ function Shops() {
       ))}
       {!result.length && (
         <Text style={s.muted}>
-          No matching shops. Try another name or filter.
+          {!shops.length && loading
+            ? "Loading partner shops…"
+            : !shops.length
+              ? "No partner shops are available yet. Please check back soon."
+              : filter === "Open now" && !query.trim()
+                ? "No shops are open right now. Check All shops for contact details and hours."
+                : "No matching shops. Try another name or filter."}
         </Text>
       )}
     </Frame>
@@ -375,6 +406,13 @@ function ShopDetails({ id }: { id: string }) {
           router.push("/upload");
         }}
       />
+      {!shop.open && (
+        <Text style={s.small}>
+          This shop is closed for new bookings. Existing orders can still be
+          collected when the shop confirms they are ready. Contact the shop for
+          pickup arrangements.
+        </Text>
+      )}
       <Button
         title={saved ? "Remove from saved shops" : "Save shop"}
         secondary
@@ -402,7 +440,7 @@ function ShopDetails({ id }: { id: string }) {
     </Frame>
   );
 }
-function FileCards() {
+function FileCards({ busy = false }: { busy?: boolean }) {
   const { draft, setDraft } = useApp();
   return (
     <>
@@ -410,8 +448,15 @@ function FileCards() {
         <Card key={f._id}>
           <View style={s.row}>
             <Art name="file" size={28} />
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text style={s.body}>{f.name}</Text>
+            <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+              <Text
+                style={s.body}
+                numberOfLines={2}
+                ellipsizeMode="middle"
+                accessibilityLabel={f.name}
+              >
+                {f.name}
+              </Text>
               <Text style={s.small}>
                 {f.pages} pages · {(f.size / 1024 / 1024).toFixed(2)} MB ·
                 Uploaded
@@ -420,13 +465,22 @@ function FileCards() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={"Remove " + f.name}
+              disabled={busy}
+              accessibilityState={{ disabled: busy }}
               onPress={() =>
                 setDraft((d) => ({
                   ...d,
                   files: d.files.filter((x) => x._id !== f._id),
                 }))
               }
-              style={{ padding: 10 }}
+              style={{
+                padding: 10,
+                minWidth: 44,
+                minHeight: 44,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: busy ? 0.5 : 1,
+              }}
             >
               <Text style={{ color: colors.muted }}>×</Text>
             </Pressable>
@@ -443,13 +497,39 @@ function Upload() {
     completed: number;
     total: number;
   } | null>(null);
+  const [remaining, setRemaining] = useState<
+    DocumentPicker.DocumentPickerAsset[]
+  >([]);
+  const [uploadError, setUploadError] = useState("");
+  const [complete, setComplete] = useState(false);
   if (!app.draft.shop) return <Redirect href="/shops" />;
+  async function upload(assets: DocumentPicker.DocumentPickerAsset[]) {
+    const current = api.captureSession();
+    const key = app.draft.requestKey;
+    setComplete(false);
+    setUploadError("");
+    const result = await uploadBatch(
+      assets,
+      (asset) => api.uploadFiles([asset]),
+      (files) =>
+        app.setDraft((d) =>
+          d.requestKey === key ? { ...d, files: [...d.files, ...files] } : d,
+        ),
+      (completed, total) => setProgress({ completed, total }),
+      current,
+    );
+    setRemaining(result.remaining);
+    setUploadError(result.error);
+    setComplete(!result.remaining.length);
+  }
   async function pick() {
+    const current = api.captureSession();
     const result = await DocumentPicker.getDocumentAsync({
       type: "application/pdf",
       multiple: true,
       copyToCacheDirectory: true,
     });
+    if (!current()) throw new StaleSessionError();
     if (result.canceled) return;
     if (result.assets.length + app.draft.files.length > 5)
       throw new Error("Choose up to 5 PDFs per order.");
@@ -459,21 +539,12 @@ function Upload() {
           app.maxUploadBytes / 1024 / 1024 +
           " MB or smaller.",
       );
-    setProgress({ completed: 0, total: result.assets.length });
-    try {
-      for (const [index, asset] of result.assets.entries()) {
-        const files = await api.uploadFiles([asset]);
-        app.setDraft((d) => ({ ...d, files: [...d.files, ...files] }));
-        setProgress({ completed: index + 1, total: result.assets.length });
-      }
-    } finally {
-      setProgress(null);
-    }
+    await upload(result.assets);
   }
   return (
     <Frame
       title="Upload files"
-      subtitle="01 / Files → 02 / Options → 03 / Pay"
+      subtitle="01 / Files → 02 / Options → 03 / Review"
       back="/shops"
     >
       <Card>
@@ -497,16 +568,48 @@ function Upload() {
             onPress={() => void run(pick)}
           />
         </View>
-        {progress && <UploadProgress {...progress} />}
+        {busy && progress && <UploadProgress {...progress} />}
       </Card>
-      <FileCards />
+      {uploadError && (
+        <Card>
+          <Text accessibilityRole="alert" style={{ color: colors.error }}>
+            {uploadError}
+          </Text>
+          <Text style={s.body}>
+            {remaining.length} file{remaining.length === 1 ? "" : "s"} still
+            need uploading. Successfully uploaded files are kept below.
+          </Text>
+          {remaining.map((asset, index) => (
+            <Text
+              key={index}
+              style={s.small}
+              numberOfLines={2}
+              accessibilityLabel={asset.name}
+            >
+              {asset.name}
+            </Text>
+          ))}
+          <Button
+            title="Retry remaining files"
+            secondary
+            loading={busy}
+            onPress={() => void run(() => upload(remaining))}
+          />
+          <Text style={s.small}>
+            If a PDF is invalid or too large, choose a corrected file instead.
+          </Text>
+        </Card>
+      )}
+      <FileCards busy={busy} />
       <Text style={s.small}>
         PDFs print in the order shown. Page ranges count continuously across
         these files.
       </Text>
-      {!!app.draft.files.length && (
+      {!!app.draft.files.length && !busy && !remaining.length && (
         <>
-          <Pill>Upload complete</Pill>
+          {!busy && !remaining.length && (
+            <Pill>{complete ? "Upload complete" : "Uploaded files ready"}</Pill>
+          )}
           <Text style={s.small}>
             Review your file before setting print options.
           </Text>
@@ -514,7 +617,7 @@ function Upload() {
       )}
       <Button
         title="Continue to options"
-        disabled={!app.draft.files.length || busy}
+        disabled={!app.draft.files.length || busy || remaining.length > 0}
         onPress={() => router.push("/options")}
       />
     </Frame>
@@ -523,51 +626,27 @@ function Upload() {
 function Options() {
   const app = useApp(),
     { busy, run } = useAction();
-  const [estimate, setEstimate] = useState<number | null>(null);
   const quoteBody = JSON.stringify({
     shopId: app.draft.shop?._id,
     fileIds: app.draft.files.map((f) => f._id),
     settings: app.draft.settings,
-    notes: app.draft.notes,
     requestKey: app.draft.requestKey,
   });
-  useEffect(() => {
-    let active = true;
-    const timer = setTimeout(() => {
-      void api
-        .request<{ amount: number }>("/quote", {
-          method: "POST",
-          body: quoteBody,
-        })
-        .then((q) => {
-          if (active) setEstimate(q.amount);
-        })
-        .catch(() => {
-          if (active) setEstimate(null);
-        });
-    }, 300);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [quoteBody]);
+  const quote = useQuote(
+    quoteBody,
+    !!app.draft.shop && !!app.draft.files.length,
+  );
+  const rangeError =
+    quote.status === "error" && /page|range/i.test(quote.error || "");
   if (!app.draft.shop || !app.draft.files.length)
     return <Redirect href="/upload" />;
   const { settings } = app.draft;
   const change = (data: Partial<typeof settings>) => {
     app.setDraft((d) => ({ ...d, settings: { ...d.settings, ...data } }));
-    setEstimate(null);
   };
   const field = (label: string, props: TextInputProps) => (
     <Field label={label} {...props} />
   );
-  const booking = {
-    shopId: app.draft.shop._id,
-    fileIds: app.draft.files.map((f) => f._id),
-    settings,
-    notes: app.draft.notes,
-    requestKey: app.draft.requestKey,
-  };
   return (
     <Frame
       title="Print options"
@@ -582,6 +661,11 @@ function Options() {
         maxLength: 100,
       })}
       <Text style={s.small}>Number pages across files in upload order.</Text>
+      {rangeError && (
+        <Text accessibilityRole="alert" style={{ color: colors.error }}>
+          {quote.error}
+        </Text>
+      )}
       <Text style={s.small}>Paper size</Text>
       <Segments
         values={["A4", "Letter", "Legal"] as const}
@@ -628,21 +712,34 @@ function Options() {
       />
       <Pair
         label="Estimated total"
-        value={estimate === null ? "Calculated at review" : money(estimate)}
+        value={
+          quote.status === "success" && quote.quote
+            ? money(quote.quote.amount)
+            : quote.status === "loading"
+              ? "Calculating…"
+              : "Estimate unavailable"
+        }
       />
+      {quote.status === "error" && (
+        <Card>
+          {!rangeError && (
+            <Text accessibilityRole="alert" style={{ color: colors.error }}>
+              {quote.error}
+            </Text>
+          )}
+          <Button title="Retry estimate" secondary onPress={quote.retry} />
+        </Card>
+      )}
       <Button
         title="Review order"
         loading={busy}
+        disabled={quote.status !== "success"}
         onPress={() =>
           void run(async () => {
-            const quote = await api.request<{ amount: number }>("/quote", {
-              method: "POST",
-              body: JSON.stringify(booking),
-            });
-            setEstimate(quote.amount);
+            if (!quote.quote || quote.status !== "success") return;
             router.push({
               pathname: "/review",
-              params: { amount: String(quote.amount) },
+              params: { amount: String(quote.quote.amount) },
             });
           })
         }
@@ -653,16 +750,20 @@ function Options() {
 function Review({ amount }: { amount: string }) {
   const app = useApp(),
     { busy, run } = useAction();
-  const [payment, setPayment] = useState("Pay on pickup");
   const [reviewedAmount, setReviewedAmount] = useState(Number(amount) || 0);
   const [priceNotice, setPriceNotice] = useState("");
+  const [submitted, setSubmitted] = useState("");
   if (!app.draft.shop || !app.draft.files.length)
-    return <Redirect href="/shops" />;
+    return submitted ? (
+      <Redirect href={{ pathname: "/order", params: { id: submitted } }} />
+    ) : (
+      <Redirect href="/shops" />
+    );
   const { draft } = app;
   const pages = draft.files.reduce((n, f) => n + f.pages, 0);
   return (
     <Frame
-      title="Review & pay"
+      title="Review order"
       subtitle="03 / One last check before printing"
       back="/options"
     >
@@ -692,134 +793,37 @@ function Review({ amount }: { amount: string }) {
           {priceNotice}
         </Text>
       ) : null}
-      <Text style={s.sectionTitle}>Choose payment</Text>
-      {["GCash QR", "Pay on pickup"].map((p) => (
-        <Pressable
-          key={p}
-          accessibilityRole="radio"
-          accessibilityState={{ checked: payment === p }}
-          onPress={() => setPayment(p)}
-        >
-          <Card tint={payment === p}>
-            <Text style={s.cardTitle}>
-              {payment === p ? "● " : "○ "}
-              {p}
-            </Text>
-            <Text style={s.small}>
-              {p === "GCash QR"
-                ? "Preview the QR payment screen. Payments aren’t connected yet."
-                : money(reviewedAmount) + " due when collecting your prints."}
-            </Text>
-          </Card>
-        </Pressable>
-      ))}
+      <Card tint>
+        <Text style={s.cardTitle}>Pay on pickup</Text>
+        <Text style={s.body}>
+          Pay {money(reviewedAmount)} in cash at the shop when you collect your
+          prints. No online payment is needed.
+        </Text>
+      </Card>
       <Button
-        title={
-          payment === "GCash QR"
-            ? "Continue with GCash"
-            : "Place order · Pay on pickup"
-        }
+        title="Place order · Pay on pickup"
         loading={busy}
         onPress={() => {
-          if (payment === "GCash QR") {
-            router.push({ pathname: "/gcash", params: { amount } });
-            return;
-          }
           void run(async () => {
-            let order: Order;
-            try {
-              order = await api.request<Order>("/orders", {
-                method: "POST",
-                body: JSON.stringify({
-                  shopId: draft.shop!._id,
-                  fileIds: draft.files.map((f) => f._id),
-                  settings: draft.settings,
-                  notes: draft.notes,
-                  requestKey: draft.requestKey,
-                  paymentMethod: "pickup",
-                  expectedAmount: reviewedAmount,
-                }),
-              });
-            } catch (error) {
-              const changed = error as Error & {
-                code?: string;
-                amount?: number;
-              };
-              if (
-                changed.code === "PRICE_CHANGED" &&
-                typeof changed.amount === "number"
-              ) {
-                setReviewedAmount(changed.amount);
-                setPriceNotice(
-                  "The shop updated its rates. Review the new total and press Place order again to confirm.",
-                );
-                return;
-              }
-              throw error;
+            const current = api.captureSession();
+            const result = await placeBooking(draft, reviewedAmount, (body) =>
+              api.request<Order>("/orders", { method: "POST", body }),
+            );
+            if (!current()) return;
+            if (!result.order) {
+              setReviewedAmount(result.amount);
+              setPriceNotice(
+                "The shop updated its rates. Review the new total and press Place order again to confirm.",
+              );
+              return;
             }
-            app.setOrders((previous) => [
-              order,
-              ...previous.filter((o) => o._id !== order._id),
-            ]);
-            void app.refresh().catch((e) => app.setError(e.message));
+            const order = result.order;
+            setSubmitted(order._id);
+            app.completeBooking(order, draft.requestKey);
+            void app.refresh();
             router.replace({ pathname: "/order", params: { id: order._id } });
           });
         }}
-      />
-    </Frame>
-  );
-}
-function GCash({ amount }: { amount: string }) {
-  const { draft } = useApp();
-  const [checked, setChecked] = useState(false);
-  return (
-    <Frame
-      title="GCash QR"
-      subtitle="Complete payment to submit your order."
-      back={"/review?amount=" + encodeURIComponent(amount)}
-    >
-      <Card style={{ alignItems: "center" }}>
-        <Text style={s.cardTitle}>GCash</Text>
-        <View
-          style={{
-            width: 200,
-            height: 200,
-            borderWidth: 2,
-            borderStyle: "dashed",
-            borderColor: colors.line,
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-          }}
-        >
-          <Art name="qrPlaceholder" size={28} />
-          <Text style={{ color: colors.muted, fontWeight: "700" }}>
-            QR CODE
-          </Text>
-          <Text style={s.small}>PLACEHOLDER</Text>
-        </View>
-        <Text style={s.heading}>{money(Number(amount) || 0)}</Text>
-        <Text style={s.small}>
-          Merchant: {draft.shop?.name || "Your selected shop"}
-        </Text>
-        <Text style={[s.body, { color: colors.muted, textAlign: "center" }]}>
-          GCash checkout is not connected yet. No payment is requested or
-          processed.
-        </Text>
-      </Card>
-      <Button title="Check payment status" onPress={() => setChecked(true)} />
-      {checked && (
-        <Text accessibilityRole="alert" style={s.muted}>
-          No payment provider is connected. Choose pay on pickup to place your
-          order.
-        </Text>
-      )}
-      <Button
-        title="Change payment method"
-        secondary
-        onPress={() =>
-          router.replace({ pathname: "/review", params: { amount } })
-        }
       />
     </Frame>
   );
@@ -919,11 +923,9 @@ function OrderDetails({ id }: { id: string }) {
           </Card>
         </>
       )}
-      {order.readyAt && !isCancelledOrRejected(order) && (
+      {order.readyAt && order.status === "Ready for pickup" && (
         <Card tint>
-          <Text style={s.cardTitle}>
-            {order.status === "Collected" ? "Collected" : "Ready for pickup"}
-          </Text>
+          <Text style={s.cardTitle}>Ready for pickup</Text>
           <Text style={s.body}>
             Your prints are ready. Show this code at the shop.
           </Text>
@@ -1045,12 +1047,20 @@ function Profile() {
   const app = useApp(),
     { busy, run } = useAction();
   const user = app.user!;
+  const scrollRef = useRef<ScrollView>(null);
+  const pendingScroll = useRef(false);
   const [section, setSection] = useState(""),
     [name, setName] = useState(user.name),
     [phone, setPhone] = useState(user.phone || ""),
     [paper, setPaper] = useState(user.defaultPaper),
     [quiet, setQuiet] = useState(user.reducedMotion);
   const [saved, setSaved] = useState("");
+  function toggleSection(next: string) {
+    const target = section === next ? "" : next;
+    pendingScroll.current = !!target;
+    setSection(target);
+    setSaved("");
+  }
   const initials = user.name
     .split(" ")
     .map((x) => x[0])
@@ -1061,6 +1071,7 @@ function Profile() {
       title="Profile"
       subtitle="Your account, preferences and support."
       tab="Profile"
+      scrollRef={scrollRef}
     >
       <Card>
         <View style={[s.avatar, { borderRadius: 28 }]}>
@@ -1075,15 +1086,7 @@ function Profile() {
           {user.email}
           {user.phone ? " · " + user.phone : ""}
         </Text>
-        <LinkText
-          onPress={() =>
-            setSection(
-              section === "Edit personal details"
-                ? ""
-                : "Edit personal details",
-            )
-          }
-        >
+        <LinkText onPress={() => toggleSection("Edit personal details")}>
           Edit personal details →
         </LinkText>
       </Card>
@@ -1100,143 +1103,166 @@ function Profile() {
             key={label}
             accessibilityRole="button"
             accessibilityState={{ expanded: section === label }}
-            onPress={() => {
-              setSection(section === label ? "" : label);
-              setSaved("");
-            }}
+            onPress={() => toggleSection(label)}
             style={[s.between, { minHeight: 44 }]}
           >
-            <Text style={s.body}>{label}</Text>
-            <Text style={{ color: colors.muted }}>›</Text>
+            <Text
+              style={[s.body, section === label && { color: colors.primary }]}
+            >
+              {label}
+            </Text>
+            <Text style={{ color: colors.primary }}>
+              {section === label ? "⌄" : "›"}
+            </Text>
           </Pressable>
         ))}
       </Card>
-      {section === "Edit personal details" && (
-        <Card>
-          <Field label="Full name" value={name} onChangeText={setName} />
-          <Field
-            label="Mobile number"
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-          />
-          <Button
-            title="Save details"
-            loading={busy}
-            onPress={() =>
-              void run(async () => {
-                await app.updateProfile({ name, phone });
-                setSaved("Details saved.");
-              })
+      {!!section && (
+        <View
+          key={section}
+          style={{ gap: 20 }}
+          onLayout={(event) => {
+            if (pendingScroll.current) {
+              pendingScroll.current = false;
+              scrollRef.current?.scrollTo({
+                y: Math.max(0, event.nativeEvent.layout.y - 20),
+                animated: false,
+              });
             }
-          />
-        </Card>
-      )}
-      {section === "Saved shops" && (
-        <View style={{ gap: 16 }}>
-          {app.shops
-            .filter((s) => user.savedShops?.includes(s._id))
-            .map((s) => (
-              <ShopCard key={s._id} shop={s} compact />
-            ))}
-          {!user.savedShops?.length && (
-            <Text style={s.muted}>
-              Save a shop from its details page to find it here.
-            </Text>
+          }}
+        >
+          {section === "Edit personal details" && (
+            <Card>
+              <Field label="Full name" value={name} onChangeText={setName} />
+              <Field
+                label="Mobile number"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+              />
+              <Button
+                title="Save details"
+                loading={busy}
+                onPress={() =>
+                  void run(async () => {
+                    await app.updateProfile({ name, phone });
+                    setSaved("Details saved.");
+                  })
+                }
+              />
+            </Card>
+          )}
+          {section === "Saved shops" && (
+            <View style={{ gap: 16 }}>
+              {app.shops
+                .filter((s) => user.savedShops?.includes(s._id))
+                .map((s) => (
+                  <ShopCard key={s._id} shop={s} compact />
+                ))}
+              {!user.savedShops?.length && (
+                <Text style={s.muted}>
+                  Save a shop from its details page to find it here.
+                </Text>
+              )}
+            </View>
+          )}
+          {section === "Notifications" && (
+            <Card>
+              <Text style={s.body}>
+                {Platform.OS === "web"
+                  ? "Your pickup updates appear in Orders. Phone alerts are available in the PaPrint mobile app."
+                  : app.notificationMessage ||
+                    "Your pickup updates appear in Orders. Enable phone alerts to get notified."}
+              </Text>
+              {Platform.OS !== "web" && (
+                <Button
+                  title="Enable phone alerts"
+                  secondary
+                  loading={busy}
+                  onPress={() => void run(app.enableNotifications)}
+                />
+              )}
+            </Card>
+          )}
+          {section === "Payment history" && (
+            <Card>
+              {app.orders.length ? (
+                app.orders.map((o) => (
+                  <Pair
+                    key={o._id}
+                    label={orderCode(o._id)}
+                    value={money(o.amount) + " · " + paymentLabel(o)}
+                  />
+                ))
+              ) : (
+                <Text style={s.muted}>No payments yet.</Text>
+              )}
+            </Card>
+          )}
+          {section === "Printing preferences" && (
+            <Card>
+              <Text style={s.cardTitle}>Default paper</Text>
+              <Segments
+                values={["A4", "Letter", "Legal"] as const}
+                value={paper}
+                onChange={setPaper}
+              />
+              <View style={s.between}>
+                <Text style={s.body}>Reduce motion</Text>
+                <Switch
+                  accessibilityLabel="Reduce motion"
+                  value={quiet}
+                  onValueChange={setQuiet}
+                  trackColor={{ true: colors.primary, false: colors.line }}
+                />
+              </View>
+              <Button
+                title="Save settings"
+                loading={busy}
+                onPress={() =>
+                  void run(async () => {
+                    await app.updateProfile({
+                      defaultPaper: paper,
+                      reducedMotion: quiet,
+                    });
+                    setSaved("Settings saved.");
+                  })
+                }
+              />
+            </Card>
+          )}
+          {section === "Help & support" && (
+            <Card>
+              <Text style={s.cardTitle}>Printing with PaPrint</Text>
+              <Text style={s.body}>
+                Choose a shop, upload an unlocked PDF, set your print options,
+                then place an order. Pay the shop when you collect your prints.
+              </Text>
+              <Text style={s.body}>
+                The shop updates Preparing, Printing, and Done. Your pickup code
+                appears when your prints are ready.
+              </Text>
+              <Text style={s.small}>
+                For an order issue, use the contact details on your shop’s page.
+              </Text>
+            </Card>
+          )}
+          {section === "Terms & privacy" && (
+            <Card>
+              <Text style={s.cardTitle}>Preview data notice</Text>
+              <Text style={s.body}>
+                Account details, preferences and orders are stored for this app.
+                Your PDFs are private to your account and the assigned shop.
+                Owner registration documents are private to that owner.
+              </Text>
+              <Text style={s.small}>
+                This is an MVP preview. Formal service terms, retention rules
+                and account deletion support still need to be finalized before
+                public launch.
+              </Text>
+            </Card>
           )}
         </View>
-      )}
-      {section === "Notifications" && (
-        <Card>
-          <Text style={s.body}>
-            {app.notificationMessage ||
-              "Your pickup updates appear in Orders. Enable phone alerts to get notified."}
-          </Text>
-          <Button
-            title="Enable phone alerts"
-            secondary
-            loading={busy}
-            onPress={() => void run(app.enableNotifications)}
-          />
-        </Card>
-      )}
-      {section === "Payment history" && (
-        <Card>
-          {app.orders.length ? (
-            app.orders.map((o) => (
-              <Pair
-                key={o._id}
-                label={orderCode(o._id)}
-                value={money(o.amount) + " · " + paymentLabel(o)}
-              />
-            ))
-          ) : (
-            <Text style={s.muted}>No payments yet.</Text>
-          )}
-        </Card>
-      )}
-      {section === "Printing preferences" && (
-        <Card>
-          <Text style={s.cardTitle}>Default paper</Text>
-          <Segments
-            values={["A4", "Letter", "Legal"] as const}
-            value={paper}
-            onChange={setPaper}
-          />
-          <View style={s.between}>
-            <Text style={s.body}>Reduce motion</Text>
-            <Switch
-              accessibilityLabel="Reduce motion"
-              value={quiet}
-              onValueChange={setQuiet}
-              trackColor={{ true: colors.primary, false: colors.line }}
-            />
-          </View>
-          <Button
-            title="Save settings"
-            loading={busy}
-            onPress={() =>
-              void run(async () => {
-                await app.updateProfile({
-                  defaultPaper: paper,
-                  reducedMotion: quiet,
-                });
-                setSaved("Settings saved.");
-              })
-            }
-          />
-        </Card>
-      )}
-      {section === "Help & support" && (
-        <Card>
-          <Text style={s.cardTitle}>Printing with PaPrint</Text>
-          <Text style={s.body}>
-            Choose a shop, upload an unlocked PDF, set your print options, then
-            place an order. Pay the shop when you collect your prints.
-          </Text>
-          <Text style={s.body}>
-            The shop updates Preparing, Printing, and Done. Your pickup code
-            appears when your prints are ready.
-          </Text>
-          <Text style={s.small}>
-            For an order issue, use the contact details on your shop’s page.
-          </Text>
-        </Card>
-      )}
-      {section === "Terms & privacy" && (
-        <Card>
-          <Text style={s.cardTitle}>Preview data notice</Text>
-          <Text style={s.body}>
-            Account details, preferences and orders are stored for this app.
-            Your PDFs are private to your account and the assigned shop. Owner
-            registration documents are private to that owner.
-          </Text>
-          <Text style={s.small}>
-            This is an MVP preview. Formal service terms, retention rules and
-            account deletion support still need to be finalized before public
-            launch.
-          </Text>
-        </Card>
       )}
       {saved ? (
         <Text accessibilityRole="alert" style={{ color: colors.primary }}>
@@ -1264,7 +1290,7 @@ function Profile() {
     </Frame>
   );
 }
-export default function Screen() {
+function AccountRoute() {
   const params = useLocalSearchParams<{
     page?: string;
     id?: string;
@@ -1315,7 +1341,14 @@ export default function Screen() {
     case "review":
       return <Review amount={params.amount || ""} />;
     case "gcash":
-      return <GCash amount={params.amount || ""} />;
+      return (
+        <Redirect
+          href={{
+            pathname: "/review",
+            params: { amount: params.amount || "" },
+          }}
+        />
+      );
     case "orders":
       return <Orders />;
     case "order":
@@ -1331,4 +1364,13 @@ export default function Screen() {
     default:
       return <Redirect href="/home" />;
   }
+}
+export default function Screen() {
+  const { user } = useApp();
+  // Reset account-owned screen state without remounting the navigation stack.
+  return (
+    <AccountRoute
+      key={user ? user.id + ":" + user.accountType : "signed-out"}
+    />
+  );
 }

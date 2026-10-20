@@ -50,6 +50,8 @@ export function MotionButton({
           (disabled || loading) && { opacity: 0.5 },
           {
             flexDirection: "row",
+            minWidth: 44,
+            paddingVertical: 14,
             gap: 10,
             transform: [{ scale: pressed && !quiet ? 0.985 : 1 }],
             transitionProperty: "transform",
@@ -64,7 +66,13 @@ export function MotionButton({
             size="small"
           />
         )}
-        <Text style={[s.buttonText, secondary && { color: colors.primary }]}>
+        <Text
+          style={[
+            s.buttonText,
+            { flexShrink: 1, textAlign: "center" },
+            secondary && { color: colors.primary },
+          ]}
+        >
           {title}
         </Text>
       </Animated.View>
@@ -87,7 +95,7 @@ export function UploadProgress({
       accessibilityValue={{ min: 0, max: total, now: completed }}
     >
       <Text style={s.muted}>
-        {completed} of {total} files uploaded
+        Uploading files · {completed} of {total} complete
       </Text>
       <View
         style={{

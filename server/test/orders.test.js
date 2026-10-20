@@ -1205,6 +1205,134 @@ test("operating controls preserve identity, historical totals, file order and re
   assert.equal((await Shop.findById(pilot.id)).name, "Pilot Prints");
 });
 
+test("operating settings use atomic versions to reject stale and racing saves", async () => {
+  const account = (
+    await request(app)
+      .post("/api/auth/signup")
+      .send({
+        name: "Concurrent Owner",
+        email: "concurrent-owner@example.test",
+        password: "Strong-password-123",
+        accountType: "owner",
+      })
+      .expect(201)
+  ).body;
+  const partner = await Shop.create({
+    name: "Concurrent Prints",
+    address: "Sample Street, Naga City",
+    owner: account.user.id,
+    registrationStatus: "approved",
+    hours: "8 AM–6 PM",
+    contact: "09123456789",
+    monoRate: 2,
+    colorRate: 8,
+    open: true,
+  });
+  const initial = (
+    await request(app)
+      .get("/api/workspace")
+      .set(auth(account.token))
+      .expect(200)
+  ).body;
+  const settings = {
+    hours: initial.hours,
+    contact: initial.contact,
+    monoRate: 3,
+    colorRate: 8,
+    open: true,
+    expectedVersion: initial.__v,
+  };
+  const results = await Promise.all(
+    [3, 4].map((monoRate) =>
+      request(app)
+        .patch("/api/workspace/operations")
+        .set(auth(account.token))
+        .send({ ...settings, monoRate }),
+    ),
+  );
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+  const winner = results.find((r) => r.status === 200).body;
+  const stored = await Shop.findById(partner.id);
+  assert.equal(stored.monoRate, winner.monoRate);
+  assert.equal(stored.__v, initial.__v + 1);
+  await request(app)
+    .patch("/api/workspace/operations")
+    .set(auth(account.token))
+    .send(settings)
+    .expect(409);
+  assert.equal((await Shop.findById(partner.id)).monoRate, winner.monoRate);
+  await request(app)
+    .patch("/api/workspace/operations")
+    .set(auth(account.token))
+    .send({ ...settings, expectedVersion: winner.__v, open: false })
+    .expect(200);
+  assert.equal((await Shop.findById(partner.id)).open, false);
+});
+
+test("registration submission refuses details changed after review", async () => {
+  const reviewApp = createApp({
+    secret: "test-secret-with-at-least-32-characters",
+    uploadDir: folder,
+  });
+  const account = (
+    await request(reviewApp)
+      .post("/api/auth/signup")
+      .send({
+        name: "Review Owner",
+        email: "review-owner@example.test",
+        password: "Strong-password-123",
+        accountType: "owner",
+      })
+      .expect(201)
+  ).body;
+  const details = {
+    name: "Review Prints",
+    representative: "Review Owner",
+    address: "Sample Street, Naga City",
+    contact: "09123456789",
+    email: "review@example.test",
+    hours: "8 AM–6 PM",
+    monoRate: 2,
+    colorRate: 8,
+  };
+  await request(reviewApp)
+    .put("/api/workspace")
+    .set(auth(account.token))
+    .send(details)
+    .expect(200);
+  const reviewed = (
+    await request(reviewApp)
+      .post("/api/workspace/documents")
+      .set(auth(account.token))
+      .attach("files", pdf, "permit.pdf")
+      .attach("files", pdf, "registration.pdf")
+      .attach("files", pdf, "id.pdf")
+      .expect(201)
+  ).body;
+  const changed = (
+    await request(reviewApp)
+      .put("/api/workspace")
+      .set(auth(account.token))
+      .send({ ...details, name: "Updated Review Prints" })
+      .expect(200)
+  ).body;
+  await request(reviewApp)
+    .post("/api/workspace/submit")
+    .set(auth(account.token))
+    .send({ confirm: true, expectedVersion: reviewed.__v })
+    .expect(409);
+  assert.equal((await Shop.findById(changed._id)).registrationStatus, "draft");
+  const submitted = (
+    await request(reviewApp)
+      .post("/api/workspace/submit")
+      .set(auth(account.token))
+      .send({ confirm: true, expectedVersion: changed.__v })
+      .expect(200)
+  ).body;
+  assert.equal(submitted.name, "Updated Review Prints");
+  assert.equal(submitted.registrationStatus, "submitted");
+});
+
 test("legacy access defaults off, rejects existing PIN tokens, and enforces payment and approval when enabled", async () => {
   const disabled = createApp({
     secret: "test-secret-with-at-least-32-characters",

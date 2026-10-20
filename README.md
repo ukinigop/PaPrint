@@ -12,9 +12,11 @@ A mobile printing-booking app built with React Native + Expo Router, Express, No
 4. **Finalize the order:** review a server-calculated price, confirm the booking, retain the order in MongoDB, and track its status and pickup code. Retrying the same confirmation cannot create duplicate orders.
 5. **Pickup notification:** staff mark an order ready; a durable notification appears in the customer's inbox. Device notifications and Expo push registration are implemented, with setup requirements below.
 
-Payment is **pay at pickup**. The GCash QR screen is a clearly labeled placeholder; no payment is processed or marked paid through it. Prices, ratings, distances, wait estimates, and seeded shops are sample data. Pricing is per printed page, with a 25% multiplier for Legal paper. Double-sided changes the instructions, not the per-page rate. Page ranges such as 1-3, 5 are supported across files in upload order. DOCX/image uploads and binding services are not supported yet.
+Payment is **pay at pickup**. Checkout offers cash payment at the shop when collecting prints. GCash and online payment screens are not available. Prices, ratings, distances, wait estimates, and seeded shops are sample data. Pricing is per printed page, with a 25% multiplier for Legal paper. Double-sided changes the instructions, not the per-page rate. Page ranges such as 1-3, 5 are supported across files in upload order. DOCX/image uploads and binding services are not supported yet.
 
 Customers can cancel unpaid Preparing orders; approved shop owners can reject them with a reason. Both outcomes appear in order history with no payment due. Once printing starts, neither action is available. See [cancellation and rejection](docs/ORDER_OUTCOMES.md) for behavior, API routes and verification.
+
+See [customer flow QA](docs/CUSTOMER_FLOW_QA.md) for session isolation, booking cleanup, quote errors, upload retries, and mobile/desktop acceptance checks. Run frontend regression tests with `npm run test:frontend`.
 
 ## Start the local demo
 
@@ -106,7 +108,9 @@ samples/               Safe PDF for trying the order flow
 
 ```powershell
 npm test
+npm run test:frontend
 npm run typecheck
+npm --prefix mobile run lint
 cd mobile
 npx expo export --platform web
 npx expo export --platform android

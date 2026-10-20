@@ -86,21 +86,34 @@ export function installWorkspace(
     async (req, res) => {
       const parsed = schema
         .pick({ hours: true, contact: true, monoRate: true, colorRate: true })
-        .extend({ open: z.boolean() })
+        .extend({
+          open: z.boolean(),
+          expectedVersion: z.number().int().nonnegative().optional(),
+        })
         .strict()
         .safeParse(req.body);
       if (!parsed.success)
         throw fail(400, "Enter valid operating hours, contact and rates.");
+      const { expectedVersion, ...settings } = parsed.data;
       const updated = await Shop.findOneAndUpdate(
         {
           _id: req.shop.id,
           owner: req.user.id,
           registrationStatus: "approved",
+          ...(expectedVersion === undefined
+            ? {}
+            : expectedVersion === 0
+              ? { $or: [{ __v: 0 }, { __v: { $exists: false } }] }
+              : { __v: expectedVersion }),
         },
-        { $set: parsed.data, $inc: { __v: 1 } },
+        { $set: settings, $inc: { __v: 1 } },
         { new: true, runValidators: true },
       );
-      if (!updated) throw fail(409, "Shop changed. Refresh and try again.");
+      if (!updated)
+        throw fail(
+          409,
+          "Operating settings changed in another session. Reload the latest settings before saving.",
+        );
       res.json(safe(updated));
     },
   );
@@ -180,10 +193,25 @@ export function installWorkspace(
     async (req, res) => {
       if (!["draft", "rejected"].includes(req.shop.registrationStatus))
         throw fail(409, "Registration is already submitted.");
-      if (!req.body.confirm || req.shop.documents.length < 3)
+      const parsed = z
+        .object({
+          confirm: z.literal(true),
+          expectedVersion: z.number().int().nonnegative().optional(),
+        })
+        .strict()
+        .safeParse(req.body);
+      if (!parsed.success || req.shop.documents.length < 3)
         throw fail(
           400,
           "Add your permit, registration proof, and identification PDFs, then confirm the details.",
+        );
+      if (
+        parsed.data.expectedVersion !== undefined &&
+        parsed.data.expectedVersion !== (req.shop.__v || 0)
+      )
+        throw fail(
+          409,
+          "Registration changed. Refresh and review the latest details before submitting.",
         );
       req.shop.registrationStatus = "submitted";
       req.shop.submissionVersion = (req.shop.submissionVersion || 0) + 1;

@@ -15,7 +15,7 @@ Source: [PaPrint wireframes](https://www.figma.com/design/Em6FqXJhr0zs7YrR7uX3vd
 
 ## Implemented screens
 
-Login/signup support customer and shop-owner accounts. A real loading screen appears while fonts/session restore. Home, Shops, shop details, upload, options, review/payment choice, GCash placeholder, Orders, Preparing/Printing/Done/Collected tracking, and Profile follow the Figma hierarchy.
+Login/signup support customer and shop-owner accounts. A real loading screen appears while fonts/session restore. Home, Shops, shop details, upload, options, review with cash-on-pickup payment, Orders, Preparing/Printing/Done/Collected tracking, and Profile follow the Figma hierarchy.
 
 Shop owners have business details, private registration PDF upload, review/submit, status overview, searchable order queue, production details/downloads, payment confirmation, and collection controls. Profile supports personal details, saved shops, notifications, payment/order history, paper preference, reduced motion, help, privacy notice, and sign out. Owners can switch to the customer app and back from Profile.
 
@@ -23,7 +23,7 @@ Exact Figma SVGs are bundled in mobile/assets/figma; no temporary remote Figma a
 
 ## Deliberate functional limits
 
-GCash is a placeholder, matching the wireframe's placeholder QR. It cannot create a pretend paid order. Pay-on-pickup is functional; the assigned owner confirms receipt before collection.
+Checkout offers cash on pickup only, with no online payment choice or QR screen. The assigned owner confirms receipt before collection. Old GCash links redirect to order review; the API continues to reject GCash bookings.
 
 Uploads remain validated PDFs with accurate page counts: 3 MB in the hosted/local UI preview, 15 MB with the standalone demo API. The wireframe's DOCX/JPG/PNG and 25 MB text is replaced with the real supported limits. Finishing currently supports No binding.
 
@@ -32,3 +32,5 @@ Administrators review submitted partners in a responsive approval dashboard; own
 ## Verification
 
 Backend integration tests cover account persistence, privacy, scoped owner access, registration gating, payment-before-collection, real page-range pricing, GCash rejection, private GridFS downloads, pickup notifications, and idempotent bookings. Frontend typecheck, lint, and web/Android exports are required. Browser QA checks phone and desktop layouts and the customer/owner order flow. Physical-device motion, hardware keyboard behavior, and background push delivery still require device testing.
+
+Frontend session, quote, upload-retry, and booking-state regression checks run with `npm run test:frontend`. See [customer flow QA](CUSTOMER_FLOW_QA.md) for the current behavior and manual acceptance checklist. The shop list omits distance estimates and the Nearest filter until reliable location data exists.

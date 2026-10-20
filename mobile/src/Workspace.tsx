@@ -5,8 +5,10 @@ import {
   paymentLabel,
 } from "./orderStatus";
 import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import {
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -35,6 +37,15 @@ import {
 import { MotionButton as Button } from "./motion";
 import * as api from "./api";
 import type { Order, Shop } from "./types";
+import {
+  ownerSnapshot,
+  ownerDirty,
+  reconcileOwnerForm,
+  registrationSteps,
+  prepareRegistrationStep,
+  type OwnerValues,
+  type RegistrationStep,
+} from "./ownerForm";
 
 const views = [
   "Overview",
@@ -51,35 +62,50 @@ export function Workspace({ view, id }: { view: string; id: string }) {
     [notice, setNotice] = useState("");
   const lock = useRef(false);
   const shop = app.workspace;
-  const [name, setName] = useState(shop?.name || ""),
-    [representative, setRepresentative] = useState(
-      shop?.representative || app.user!.name,
-    ),
-    [address, setAddress] = useState(shop?.address || ""),
-    [contact, setContact] = useState(shop?.contact || app.user!.phone || ""),
-    [email, setEmail] = useState(shop?.email || app.user!.email),
-    [hours, setHours] = useState(shop?.hours || "8:00 AM – 6:00 PM"),
-    [mono, setMono] = useState(String(shop?.monoRate || 2)),
-    [color, setColor] = useState(String(shop?.colorRate || 8));
-  const [open, setOpen] = useState(shop?.open || false);
-  const hydrated = useRef(shop?._id);
-  useEffect(() => {
-    if (shop && hydrated.current !== shop._id) {
-      hydrated.current = shop._id;
-      setOpen(shop.open);
-      setName(shop.name);
-      setRepresentative(shop.representative || app.user!.name);
-      setAddress(shop.address);
-      setContact(shop.contact || "");
-      setEmail(shop.email || app.user!.email);
-      setHours(shop.hours || "8:00 AM – 6:00 PM");
-      setMono(String(shop.monoRate));
-      setColor(String(shop.colorRate));
+  const [form, setForm] = useState(() => ownerSnapshot(shop, app.user!));
+  const [confirm, setConfirm] = useState(false);
+  const {
+    name,
+    representative,
+    address,
+    contact,
+    email,
+    hours,
+    mono,
+    color,
+    open,
+  } = form.values;
+  const dirty = ownerDirty(form);
+  const edit = <K extends keyof OwnerValues>(key: K, value: OwnerValues[K]) => {
+    setForm((previous) => ({
+      ...previous,
+      values: { ...previous.values, [key]: value },
+    }));
+    setConfirm(false);
+    setNotice("");
+  };
+  const setName = (value: string) => edit("name", value);
+  const setRepresentative = (value: string) => edit("representative", value);
+  const setAddress = (value: string) => edit("address", value);
+  const setContact = (value: string) => edit("contact", value);
+  const setEmail = (value: string) => edit("email", value);
+  const setHours = (value: string) => edit("hours", value);
+  const setMono = (value: string) => edit("mono", value);
+  const setColor = (value: string) => edit("color", value);
+  const setOpen = (value: boolean) => edit("open", value);
+  const remoteKey = JSON.stringify(ownerSnapshot(shop, app.user!));
+  const [receivedKey, setReceivedKey] = useState(remoteKey);
+  if (receivedKey !== remoteKey) {
+    setReceivedKey(remoteKey);
+    const remote: ReturnType<typeof ownerSnapshot> = JSON.parse(remoteKey);
+    if (remote.shopId) {
+      setForm(reconcileOwnerForm(form, remote));
+      setConfirm(false);
     }
-  }, [shop, app.user]);
-  const [review, setReview] = useState(false),
-    [confirm, setConfirm] = useState(false),
-    [query, setQuery] = useState(""),
+  }
+  const [step, setStep] = useState<RegistrationStep>(registrationSteps[0]);
+  const review = step === registrationSteps[2];
+  const [query, setQuery] = useState(""),
     [filter, setFilter] = useState("All orders");
   const [rejecting, setRejecting] = useState<{
     id: string;
@@ -100,10 +126,10 @@ export function Workspace({ view, id }: { view: string; id: string }) {
   function go(next: string) {
     setError("");
     setNotice("");
-    setReview(false);
+    setStep(registrationSteps[0]);
     router.push({ pathname: "/workspace", params: { view: next } });
   }
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<unknown>) {
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
@@ -118,6 +144,11 @@ export function Workspace({ view, id }: { view: string; id: string }) {
     }
   }
   async function save() {
+    if (form.conflict)
+      throw new Error(
+        "Your shop details changed in another session. Reload the latest settings before continuing.",
+      );
+    if (shop && !dirty) return shop;
     const next = await api.request<Shop>("/workspace", {
       method: "PUT",
       body: JSON.stringify({
@@ -132,7 +163,29 @@ export function Workspace({ view, id }: { view: string; id: string }) {
       }),
     });
     app.setWorkspace(next);
+    setForm(ownerSnapshot(next, app.user!));
     setNotice("Business details saved.");
+    return next;
+  }
+  async function changeStep(target: RegistrationStep) {
+    setConfirm(false);
+    try {
+      setStep(await prepareRegistrationStep(target, save));
+    } catch (e) {
+      setStep(
+        (e as { code?: string }).code === "MISSING_REGISTRATION_DOCUMENTS"
+          ? registrationSteps[1]
+          : registrationSteps[0],
+      );
+      throw e;
+    }
+  }
+  async function reloadSettings() {
+    const latest = await api.request<Shop>("/workspace");
+    app.setWorkspace(latest);
+    setForm(ownerSnapshot(latest, app.user!));
+    setConfirm(false);
+    setNotice("Latest settings loaded. Your unsaved edits were discarded.");
   }
   async function documents() {
     if (!shop)
@@ -180,7 +233,8 @@ export function Workspace({ view, id }: { view: string; id: string }) {
   const fieldColumn = wide ? { flex: 1 } : { width: "100%" as const };
   return (
     <SafeAreaView style={s.safe}>
-      <View
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{
           flex: 1,
           width: "100%",
@@ -278,31 +332,65 @@ export function Workspace({ view, id }: { view: string; id: string }) {
               {error || app.error}
             </Text>
           ) : null}
+          {app.refreshError && (
+            <Card>
+              <Text accessibilityRole="alert" style={{ color: colors.error }}>
+                {app.refreshError}
+              </Text>
+              <Text style={s.small}>
+                Showing the last loaded workspace. Refresh before acting on an
+                order.
+              </Text>
+              <Button
+                title="Retry refresh"
+                secondary
+                loading={app.loading}
+                onPress={() => void app.refresh(true)}
+              />
+            </Card>
+          )}
           {notice ? (
             <Text accessibilityRole="alert" style={{ color: colors.primary }}>
               {notice}
             </Text>
           ) : null}
+          {(registering || view === "Shop profile") && form.conflict && (
+            <Card>
+              <Text accessibilityRole="alert" style={{ color: colors.error }}>
+                Your shop settings changed in another session. Your edits are
+                kept here, but saving is blocked to protect the newer settings.
+              </Text>
+              <Text style={s.small}>
+                Reloading discards your unsaved edits and loads the latest
+                settings.
+              </Text>
+              <Button
+                title="Discard edits and load latest settings"
+                secondary
+                loading={busy}
+                onPress={() => void run(reloadSettings)}
+              />
+            </Card>
+          )}
+          {(registering || view === "Shop profile") && dirty && (
+            <Text style={s.small}>Unsaved changes</Text>
+          )}
           {app.loading && !shop && (
             <Text style={s.muted}>Loading your workspace…</Text>
           )}
           {registering ? (
             <>
-              <Segments
-                values={[
-                  "01 Business details",
-                  "02 Documents",
-                  "03 Review & submit",
-                ]}
-                value={
-                  review
-                    ? "03 Review & submit"
-                    : shop
-                      ? "02 Documents"
-                      : "01 Business details"
-                }
-                onChange={(v) => setReview(v === "03 Review & submit")}
-              />
+              {(!shop ||
+                ["draft", "rejected"].includes(
+                  shop.registrationStatus || "",
+                )) && (
+                <Segments
+                  values={registrationSteps}
+                  value={step}
+                  disabled={busy}
+                  onChange={(target) => void run(() => changeStep(target))}
+                />
+              )}
               {shop?.rejectionReason ? (
                 <Card>
                   <Text accessibilityRole="alert" style={s.body}>
@@ -351,6 +439,15 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                     <Pair label="Address" value={shop?.address || address} />
                     <Pair label="Business hours" value={shop?.hours || hours} />
                     <Pair label="Contact" value={shop?.contact || contact} />
+                    <Pair label="Business email" value={shop?.email || email} />
+                    <Pair
+                      label="B&W / color per page"
+                      value={
+                        money(shop?.monoRate ?? Number(mono)) +
+                        " / " +
+                        money(shop?.colorRate ?? Number(color))
+                      }
+                    />
                     <Text style={s.cardTitle}>Documents</Text>
                     {shop?.documents?.map((d) => (
                       <Text key={d._id} style={s.body}>
@@ -360,7 +457,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                     {!shop?.documents?.length && (
                       <Text style={s.muted}>No documents uploaded.</Text>
                     )}
-                    <LinkText onPress={() => setReview(false)}>
+                    <LinkText onPress={() => setStep(registrationSteps[0])}>
                       Edit registration details →
                     </LinkText>
                   </Card>
@@ -376,6 +473,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                     <Pressable
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: confirm }}
+                      aria-checked={confirm}
                       onPress={() => setConfirm(!confirm)}
                       style={{
                         minHeight: 44,
@@ -395,14 +493,20 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                       title="Submit registration"
                       loading={busy}
                       disabled={
-                        !confirm || !shop || shop.documents?.length !== 3
+                        !confirm ||
+                        !shop ||
+                        shop.documents?.length !== 3 ||
+                        form.conflict
                       }
                       onPress={() =>
                         void run(async () => {
                           app.setWorkspace(
                             await api.request<Shop>("/workspace/submit", {
                               method: "POST",
-                              body: JSON.stringify({ confirm }),
+                              body: JSON.stringify({
+                                confirm,
+                                expectedVersion: form.version,
+                              }),
                             }),
                           );
                           setNotice("Registration submitted for review.");
@@ -412,7 +516,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                     <Button
                       title="Back to edit"
                       secondary
-                      onPress={() => setReview(false)}
+                      onPress={() => setStep(registrationSteps[0])}
                     />
                   </Card>
                 </View>
@@ -425,117 +529,134 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                       alignItems: "flex-start",
                     }}
                   >
-                    <Card style={fieldColumn}>
-                      <Text style={s.cardTitle}>Business information</Text>
-                      <Field
-                        label="Registered business name"
-                        placeholder="Shop One"
-                        value={name}
-                        onChangeText={setName}
-                      />
-                      <Field
-                        label="Owner / representative"
-                        value={representative}
-                        onChangeText={setRepresentative}
-                      />
-                      <Field
-                        label="Shop address in Naga City"
-                        placeholder="Sample Street, Bagumbayan, Naga City"
-                        value={address}
-                        onChangeText={setAddress}
-                      />
-                      <Field
-                        label="Contact number"
-                        value={contact}
-                        onChangeText={setContact}
-                        keyboardType="phone-pad"
-                      />
-                      <Field
-                        label="Business email"
-                        value={email}
-                        onChangeText={setEmail}
-                        autoCapitalize="none"
-                        keyboardType="email-address"
-                      />
-                      <Field
-                        label="Business hours"
-                        value={hours}
-                        onChangeText={setHours}
-                      />
-                      <View style={{ flexDirection: "row", gap: 16 }}>
-                        <View style={{ flex: 1 }}>
-                          <Field
-                            label="B&W / page (₱)"
-                            value={mono}
-                            onChangeText={setMono}
-                            keyboardType="decimal-pad"
-                          />
+                    {step === registrationSteps[0] && (
+                      <Card style={fieldColumn}>
+                        <Text style={s.cardTitle}>Business information</Text>
+                        <Field
+                          label="Registered business name"
+                          placeholder="Shop One"
+                          value={name}
+                          onChangeText={setName}
+                        />
+                        <Field
+                          label="Owner / representative"
+                          value={representative}
+                          onChangeText={setRepresentative}
+                        />
+                        <Field
+                          label="Shop address in Naga City"
+                          placeholder="Sample Street, Bagumbayan, Naga City"
+                          value={address}
+                          onChangeText={setAddress}
+                        />
+                        <Field
+                          label="Contact number"
+                          value={contact}
+                          onChangeText={setContact}
+                          keyboardType="phone-pad"
+                        />
+                        <Field
+                          label="Business email"
+                          value={email}
+                          onChangeText={setEmail}
+                          autoCapitalize="none"
+                          keyboardType="email-address"
+                        />
+                        <Field
+                          label="Business hours"
+                          value={hours}
+                          onChangeText={setHours}
+                        />
+                        <View style={{ flexDirection: "row", gap: 16 }}>
+                          <View style={{ flex: 1 }}>
+                            <Field
+                              label="B&W / page (₱)"
+                              value={mono}
+                              onChangeText={setMono}
+                              keyboardType="decimal-pad"
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Field
+                              label="Color / page (₱)"
+                              value={color}
+                              onChangeText={setColor}
+                              keyboardType="decimal-pad"
+                            />
+                          </View>
                         </View>
-                        <View style={{ flex: 1 }}>
-                          <Field
-                            label="Color / page (₱)"
-                            value={color}
-                            onChangeText={setColor}
-                            keyboardType="decimal-pad"
-                          />
-                        </View>
-                      </View>
-                      <Button
-                        title="Save business details"
-                        loading={busy}
-                        onPress={() => void run(save)}
-                      />
-                    </Card>
-                    <Card style={wide ? { width: 330 } : { width: "100%" }}>
-                      <Text style={s.cardTitle}>Before you submit</Text>
-                      <Text style={s.body}>01 Add business details</Text>
-                      <Text style={s.body}>02 Upload business documents</Text>
-                      <Text style={s.body}>
-                        03 Set services and sample rates
-                      </Text>
-                      <Text style={s.body}>04 Review and submit</Text>
-                      <Text style={s.cardTitle}>Registration documents</Text>
-                      <Text style={s.small}>
-                        Business permit · Registration proof · Owner
-                        identification. 3 PDFs,{" "}
-                        {app.maxUploadBytes / 1024 / 1024} MB each.
-                      </Text>
-                      {shop?.documents?.map((d) => (
-                        <View key={d._id} style={{ gap: 8 }}>
-                          <Text style={s.small}>✓ {d.name}</Text>
-                          <Button
-                            title={"Remove " + d.name}
-                            secondary
-                            loading={busy}
-                            onPress={() =>
-                              void run(async () => {
-                                const next = await api.request<Shop>(
-                                  "/workspace/documents/" + d._id,
-                                  { method: "DELETE" },
-                                );
-                                app.setWorkspace(next);
-                              })
-                            }
-                          />
-                        </View>
-                      ))}
-                      <Button
-                        title="Upload documents"
-                        secondary
-                        loading={busy}
-                        disabled={!shop || (shop.documents?.length || 0) >= 3}
-                        onPress={() => void run(documents)}
-                      />
-                    </Card>
+                        <Button
+                          title="Save business details"
+                          loading={busy}
+                          onPress={() => void run(save)}
+                        />
+                      </Card>
+                    )}
+                    {step === registrationSteps[1] && (
+                      <Card style={fieldColumn}>
+                        <Text style={s.cardTitle}>Registration documents</Text>
+                        <Text style={s.small}>
+                          Business permit · Registration proof · Owner
+                          identification. 3 PDFs,{" "}
+                          {app.maxUploadBytes / 1024 / 1024} MB each.
+                        </Text>
+                        {shop?.documents?.map((d) => (
+                          <View key={d._id} style={{ gap: 8 }}>
+                            <Text style={s.small}>✓ {d.name}</Text>
+                            <Button
+                              title={"Remove " + d.name}
+                              secondary
+                              loading={busy}
+                              onPress={() =>
+                                void run(async () => {
+                                  const next = await api.request<Shop>(
+                                    "/workspace/documents/" + d._id,
+                                    { method: "DELETE" },
+                                  );
+                                  app.setWorkspace(next);
+                                })
+                              }
+                            />
+                          </View>
+                        ))}
+                        <Button
+                          title="Upload documents"
+                          secondary
+                          loading={busy}
+                          disabled={!shop || (shop.documents?.length || 0) >= 3}
+                          onPress={() => void run(documents)}
+                        />
+                      </Card>
+                    )}
                   </View>
+                  {step === registrationSteps[1] && (
+                    <Button
+                      title="Back to business details"
+                      secondary
+                      disabled={busy}
+                      onPress={() => setStep(registrationSteps[0])}
+                    />
+                  )}
                   <Button
-                    title="Save & continue"
+                    title={
+                      step === registrationSteps[0]
+                        ? "Save & continue to documents"
+                        : "Continue to review"
+                    }
                     loading={busy}
+                    disabled={
+                      form.conflict ||
+                      (step === registrationSteps[1] &&
+                        shop?.documents?.length !== 3)
+                    }
                     onPress={() =>
-                      void run(async () => {
-                        await save();
-                        setReview(true);
-                      })
+                      void run(() =>
+                        changeStep(
+                          step === registrationSteps[0]
+                            ? registrationSteps[1]
+                            : registrationSteps[2],
+                        ),
+                      )
                     }
                   />
                 </>
@@ -689,7 +810,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                     value={money(order.amount)}
                   />
                   <Pill>{paymentLabel(order)}</Pill>
-                  {!isCancelledOrRejected(order) && (
+                  {isActiveOrder(order) && (
                     <>
                       <Text style={s.cardTitle}>
                         Pickup code: {order.pickupCode}
@@ -716,11 +837,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                           />
                         )}
                       <Button
-                        title={
-                          order.status === "Collected"
-                            ? "Collected"
-                            : "Mark as collected"
-                        }
+                        title="Mark as collected"
                         secondary
                         disabled={
                           order.status !== "Ready for pickup" ||
@@ -917,22 +1034,37 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                   <Button
                     title="Save operating settings"
                     loading={busy}
+                    disabled={form.conflict || !dirty}
                     onPress={() =>
                       void run(async () => {
-                        const next = await api.request<Shop>(
-                          "/workspace/operations",
-                          {
-                            method: "PATCH",
-                            body: JSON.stringify({
-                              hours,
-                              contact,
-                              monoRate: Number(mono),
-                              colorRate: Number(color),
-                              open,
-                            }),
-                          },
-                        );
+                        let next: Shop;
+                        try {
+                          next = await api.request<Shop>(
+                            "/workspace/operations",
+                            {
+                              method: "PATCH",
+                              body: JSON.stringify({
+                                hours,
+                                contact,
+                                monoRate: Number(mono),
+                                colorRate: Number(color),
+                                open,
+                                expectedVersion: form.version,
+                              }),
+                            },
+                          );
+                        } catch (e) {
+                          if ((e as { status?: number }).status === 409) {
+                            setForm((previous) => ({
+                              ...previous,
+                              conflict: true,
+                            }));
+                            await app.refresh(true);
+                          }
+                          throw e;
+                        }
                         app.setWorkspace(next);
+                        setForm(ownerSnapshot(next, app.user!));
                         setNotice("Operating settings saved.");
                         await app.refresh();
                       })
@@ -970,7 +1102,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
             </Card>
           )}
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

@@ -23,7 +23,6 @@ const assets = {
   shop: require("../assets/figma/3d86e.svg"),
   shopLarge: require("../assets/figma/e7389.svg"),
   file: require("../assets/figma/6bf51.svg"),
-  qrPlaceholder: require("../assets/figma/82bd0.svg"),
   upload: require("../assets/figma/3eda6.svg"),
   print: require("../assets/figma/475a1.svg"),
   check: require("../assets/figma/57d85.svg"),
@@ -77,6 +76,7 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
         style={[
           s.input,
           { marginBottom: 0, borderWidth: 0, borderRadius: 16 },
+          props.multiline && { minHeight: 96, textAlignVertical: "top" },
           props.style,
         ]}
       />
@@ -119,10 +119,12 @@ export function Segments<T extends string>({
   values,
   value,
   onChange,
+  disabled = false,
 }: {
   values: readonly T[];
   value: T;
   onChange: (v: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
@@ -131,6 +133,9 @@ export function Segments<T extends string>({
           key={v}
           accessibilityRole="radio"
           accessibilityState={{ checked: v === value }}
+          aria-checked={v === value}
+          aria-disabled={disabled}
+          disabled={disabled}
           onPress={() => onChange(v)}
           style={{
             minHeight: 44,

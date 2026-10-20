@@ -34,7 +34,7 @@ PDFs are saved and shown in the customer's selected order. Page ranges count con
 
 The app sends its reviewed total as `expectedAmount`. If the server calculates a different price, it returns HTTP 409 with `code: PRICE_CHANGED`, `amount`, and `pages`. The app shows the new total and requires another confirmation. Retried successful bookings keep the original order and total. Historical orders are not repriced or reordered. Older API clients can omit `expectedAmount` and retain their existing behavior.
 
-Payment remains cash on pickup. Both owner and optional PIN workflows require Ready for pickup → payment confirmation → Collected. GCash remains a labeled preview.
+Payment remains cash on pickup. Both owner and optional PIN workflows require Ready for pickup → payment confirmation → Collected. GCash is not offered in checkout; customers pay in cash at the shop when collecting their prints.
 
 Unpaid Preparing orders can now be cancelled by their customer or rejected by their approved shop with a reason. These terminal outcomes show no payment due and remain in History. See [order outcomes](ORDER_OUTCOMES.md) for confirmation screens, endpoint details and race handling.
 

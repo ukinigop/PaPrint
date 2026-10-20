@@ -2,6 +2,8 @@
 
 This repository is configured as one Vercel project: the Expo web export is the frontend, `/api/*` is the Express API, and MongoDB Atlas holds both order data and private PDF files in GridFS. The native iPhone/Android app remains an Expo app and can use the deployed API.
 
+See the [release readiness record](RELEASE_READINESS.md) for the reviewed baseline, verification, remaining access checks and rollback procedure.
+
 ## 1. Prepare MongoDB Atlas
 
 Create an Atlas database, a database user with read/write access only to the PaPrint database, and a connection string naming that database, for example `mongodb+srv://USER:PASSWORD@CLUSTER/paprint`. URL-encode special characters in the password. Configure Atlas Network Access to allow the Vercel runtime's outbound connections using your selected network setup. Atlas must be reachable from both the deployment and the computer used for seeding. Never put the connection string in `EXPO_PUBLIC_*` variables or Git.

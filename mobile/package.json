@@ -38,6 +38,7 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "test": "node --import ./test/register.mjs --test test/*.test.mjs",
     "start": "expo start --go",
     "android": "expo start --android",
     "ios": "expo start --ios",
