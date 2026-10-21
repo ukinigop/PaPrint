@@ -1002,8 +1002,11 @@ function OrderDetails({ id }: { id: string }) {
   );
 }
 function Profile() {
-  const app = useApp(),
-    { busy, run } = useAction();
+  const app = useApp();
+  const { busy: savingDetails, run: saveDetails } = useAction();
+  const { busy: savingSettings, run: saveSettings } = useAction();
+  const { busy: enablingAlerts, run: enableAlerts } = useAction();
+  const { busy: signingOut, run: signOut } = useAction();
   const user = app.user!;
   const [section, setSection] = useState(""),
     [name, setName] = useState(user.name),
@@ -1034,9 +1037,9 @@ function Profile() {
           />
           <Button
             title="Save details"
-            loading={busy}
+            loading={savingDetails}
             onPress={() =>
-              void run(async () => {
+              void saveDetails(async () => {
                 await app.updateProfile({ name, phone });
                 setSaved("Details saved.");
               })
@@ -1070,8 +1073,8 @@ function Profile() {
             <Button
               title="Enable phone alerts"
               secondary
-              loading={busy}
-              onPress={() => void run(app.enableNotifications)}
+              loading={enablingAlerts}
+              onPress={() => void enableAlerts(app.enableNotifications)}
             />
           )}
         </View>
@@ -1110,9 +1113,9 @@ function Profile() {
           </View>
           <Button
             title="Save settings"
-            loading={busy}
+            loading={savingSettings}
             onPress={() =>
-              void run(async () => {
+              void saveSettings(async () => {
                 await app.updateProfile({
                   defaultPaper: paper,
                   reducedMotion: quiet,
@@ -1228,9 +1231,9 @@ function Profile() {
       <Button
         title="Log out"
         secondary
-        loading={busy}
+        loading={signingOut}
         onPress={() =>
-          void run(async () => {
+          void signOut(async () => {
             await app.signOut();
             router.replace("/login");
           })

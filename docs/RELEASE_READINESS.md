@@ -52,6 +52,8 @@ Local validation passed: 28 backend integration tests using temporary MongoDB, 2
 
 Native PDF rendering, browser print-dialog behavior and physical printer output remain manual acceptance checks; browser automation could not open the blob PDF viewer. The existing authorized download remains the owner fallback. A main push may trigger Vercel; the earlier deployment results do not verify this new release.
 
+Profile loading follow-up: Save details, Save settings, phone-alert setup and Log out each own their loading state and duplicate-submission guard. A delayed local settings request verified that Save settings alone spins while Log out remains idle. Frontend tests (26), TypeScript, lint and web export passed for this follow-up.
+
 ## Live smoke check after publishing
 
 1. Verify the new commit has a Ready production deployment and `paprint.vercel.app` points to it; confirm `/api/health` and direct-page refreshes.
