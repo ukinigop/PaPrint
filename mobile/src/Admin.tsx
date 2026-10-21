@@ -16,10 +16,11 @@ import { useApp } from "./state";
 import * as api from "./api";
 import type { Shop } from "./types";
 
-export function Admin({ id }: { id: string }) {
+export function Admin({ id, status }: { id: string; status?: string }) {
   const app = useApp();
   const wide = useWindowDimensions().width >= 960;
-  const [filter, setFilter] = useState("submitted");
+  const filter =
+    status === "approved" || status === "rejected" ? status : "submitted";
   const [shops, setShops] = useState<Shop[]>([]);
   const [selected, setSelected] = useState<Shop | null>(null);
   const [reason, setReason] = useState("");
@@ -154,9 +155,9 @@ export function Admin({ id }: { id: string }) {
           <Segments
             values={["submitted", "approved", "rejected"]}
             value={filter}
+            disabled={busy}
             onChange={(value) => {
-              setFilter(value);
-              router.replace("/admin");
+              router.replace({ pathname: "/admin", params: { status: value } });
             }}
           />
           <View style={{ flexDirection: wide ? "row" : "column", gap: 24 }}>
@@ -178,7 +179,7 @@ export function Admin({ id }: { id: string }) {
                     onPress={() =>
                       router.push({
                         pathname: "/admin",
-                        params: { id: shop._id },
+                        params: { id: shop._id, status: filter },
                       })
                     }
                   />

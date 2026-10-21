@@ -37,11 +37,7 @@ import {
   Segments,
   stage,
 } from "./design";
-import {
-  MotionButton as Button,
-  PrintingIndicator,
-  UploadProgress,
-} from "./motion";
+import { MotionButton as Button, UploadProgress } from "./motion";
 import { AccountLoading, AccountScreen } from "./AccountScreen";
 import { useApp } from "./state";
 import * as api from "./api";
@@ -254,15 +250,16 @@ function OrderCard({ order }: { order: Order }) {
           <Text style={s.cardTitle}>{orderCode(order._id)}</Text>
           <Pill>{stage(order.status)}</Pill>
         </View>
-        <Text style={s.body}>{order.files[0]?.name}</Text>
+        <Text style={s.body}>{order.shop.name}</Text>
         <Text style={s.small}>
-          {order.shop.name} · {order.pages} pages · {money(order.amount)}
+          {order.files[0]?.name || "Documents"}
+          {order.files.length > 1 ? ` +${order.files.length - 1} more` : ""}
         </Text>
         <Text style={s.small}>
           {isCancelledOrRejected(order)
             ? "No payment due"
             : order.paymentStatus === "paid"
-              ? "Paid"
+              ? money(order.amount) + " · Paid"
               : "Pay on pickup · " + money(order.amount) + " due"}
         </Text>
         <Text style={{ color: colors.primary }}>View order →</Text>
@@ -835,11 +832,7 @@ function Orders() {
     filter === "Active" ? isActiveOrder(o) : isTerminalOrder(o),
   );
   return (
-    <Frame
-      title="Orders"
-      subtitle="Every print, from upload to pickup."
-      tab="Orders"
-    >
+    <Frame title="Orders" subtitle="Track your prints and pickup." tab="Orders">
       <Segments
         values={["Active", "History"]}
         value={filter}
@@ -880,8 +873,6 @@ function OrderDetails({ id }: { id: string }) {
         </Text>
       </Frame>
     );
-  const statuses = ["Queued", "Printing", "Ready for pickup"];
-  const index = statuses.indexOf(order.status);
   return (
     <Frame
       title={stage(order.status)}
@@ -889,39 +880,11 @@ function OrderDetails({ id }: { id: string }) {
       tab="Orders"
       back="/orders"
     >
-      {isCancelledOrRejected(order) ? (
-        <OrderOutcome order={order} />
-      ) : (
-        <>
-          <PrintingIndicator status={order.status} />
-          <Card>
-            {statuses.map((status, i) => (
-              <View key={status} style={[s.row, { gap: 16 }]}>
-                <Text
-                  style={{
-                    color:
-                      i <= index || order.status === "Collected"
-                        ? colors.primary
-                        : colors.muted,
-                    fontSize: 20,
-                  }}
-                >
-                  {i <= index || order.status === "Collected" ? "●" : "○"}
-                </Text>
-                <View style={{ gap: 4 }}>
-                  <Text style={s.body}>{stage(status)}</Text>
-                  <Text style={s.small}>
-                    {order.status === "Collected" || i < index
-                      ? "Completed"
-                      : i === index
-                        ? "Current status"
-                        : "Up next"}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </Card>
-        </>
+      {isCancelledOrRejected(order) && <OrderOutcome order={order} />}
+      {order.status === "Queued" && (
+        <Text style={s.muted}>
+          The shop is reviewing your files and print settings.
+        </Text>
       )}
       {order.readyAt && order.status === "Ready for pickup" && (
         <Card tint>
@@ -942,7 +905,7 @@ function OrderDetails({ id }: { id: string }) {
               ? "No payment due"
               : order.paymentStatus === "paid"
                 ? "Paid"
-                : money(order.amount) + " due on pickup"
+                : "Pay on pickup"
           }
         />
         <Text style={s.body}>
@@ -957,6 +920,12 @@ function OrderDetails({ id }: { id: string }) {
             Contact shop
           </LinkText>
         )}
+        <Text style={s.cardTitle}>Documents</Text>
+        {order.files.map((file) => (
+          <Text key={file.upload} style={s.body}>
+            {file.name}
+          </Text>
+        ))}
         <Pair
           label="Print setup"
           value={order.settings.paper + " · " + order.settings.color}
@@ -974,17 +943,6 @@ function OrderDetails({ id }: { id: string }) {
           }
           value={money(order.amount)}
         />
-        {order.files.map((f) => (
-          <Button
-            key={f.upload}
-            title={"Download " + f.name}
-            secondary
-            loading={busy}
-            onPress={() =>
-              void run(() => api.openPrintFile(order._id, f.upload))
-            }
-          />
-        ))}
       </Card>
       {canEndOrder(order) &&
         (cancelling?.id === order._id ? (
@@ -1047,8 +1005,6 @@ function Profile() {
   const app = useApp(),
     { busy, run } = useAction();
   const user = app.user!;
-  const scrollRef = useRef<ScrollView>(null);
-  const pendingScroll = useRef(false);
   const [section, setSection] = useState(""),
     [name, setName] = useState(user.name),
     [phone, setPhone] = useState(user.phone || ""),
@@ -1057,7 +1013,6 @@ function Profile() {
   const [saved, setSaved] = useState("");
   function toggleSection(next: string) {
     const target = section === next ? "" : next;
-    pendingScroll.current = !!target;
     setSection(target);
     setSaved("");
   }
@@ -1066,12 +1021,151 @@ function Profile() {
     .map((x) => x[0])
     .slice(0, 2)
     .join("");
+  const sectionContent = (
+    <View style={{ gap: 16, paddingVertical: 12 }}>
+      {section === "Edit personal details" && (
+        <View style={{ gap: 16 }}>
+          <Field label="Full name" value={name} onChangeText={setName} />
+          <Field
+            label="Mobile number"
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+          />
+          <Button
+            title="Save details"
+            loading={busy}
+            onPress={() =>
+              void run(async () => {
+                await app.updateProfile({ name, phone });
+                setSaved("Details saved.");
+              })
+            }
+          />
+        </View>
+      )}
+      {section === "Saved shops" && (
+        <View style={{ gap: 16 }}>
+          {app.shops
+            .filter((s) => user.savedShops?.includes(s._id))
+            .map((s) => (
+              <ShopCard key={s._id} shop={s} compact />
+            ))}
+          {!user.savedShops?.length && (
+            <Text style={s.muted}>
+              Save a shop from its details page to find it here.
+            </Text>
+          )}
+        </View>
+      )}
+      {section === "Notifications" && (
+        <View style={{ gap: 16 }}>
+          <Text style={s.body}>
+            {Platform.OS === "web"
+              ? "Your pickup updates appear in Orders. Phone alerts are available in the PaPrint mobile app."
+              : app.notificationMessage ||
+                "Your pickup updates appear in Orders. Enable phone alerts to get notified."}
+          </Text>
+          {Platform.OS !== "web" && (
+            <Button
+              title="Enable phone alerts"
+              secondary
+              loading={busy}
+              onPress={() => void run(app.enableNotifications)}
+            />
+          )}
+        </View>
+      )}
+      {section === "Payment history" && (
+        <View style={{ gap: 16 }}>
+          {app.orders.length ? (
+            app.orders.map((o) => (
+              <Pair
+                key={o._id}
+                label={orderCode(o._id)}
+                value={money(o.amount) + " · " + paymentLabel(o)}
+              />
+            ))
+          ) : (
+            <Text style={s.muted}>No payments yet.</Text>
+          )}
+        </View>
+      )}
+      {section === "Printing preferences" && (
+        <View style={{ gap: 16 }}>
+          <Text style={s.cardTitle}>Default paper</Text>
+          <Segments
+            values={["A4", "Letter", "Legal"] as const}
+            value={paper}
+            onChange={setPaper}
+          />
+          <View style={s.between}>
+            <Text style={s.body}>Reduce motion</Text>
+            <Switch
+              accessibilityLabel="Reduce motion"
+              value={quiet}
+              onValueChange={setQuiet}
+              trackColor={{ true: colors.primary, false: colors.line }}
+            />
+          </View>
+          <Button
+            title="Save settings"
+            loading={busy}
+            onPress={() =>
+              void run(async () => {
+                await app.updateProfile({
+                  defaultPaper: paper,
+                  reducedMotion: quiet,
+                });
+                setSaved("Settings saved.");
+              })
+            }
+          />
+        </View>
+      )}
+      {section === "Help & support" && (
+        <View style={{ gap: 16 }}>
+          <Text style={s.cardTitle}>Printing with PaPrint</Text>
+          <Text style={s.body}>
+            Choose a shop, upload an unlocked PDF, set your print options, then
+            place an order. Pay the shop when you collect your prints.
+          </Text>
+          <Text style={s.body}>
+            The shop updates Preparing, Printing, and Done. Your pickup code
+            appears when your prints are ready.
+          </Text>
+          <Text style={s.small}>
+            For an order issue, use the contact details on your shop’s page.
+          </Text>
+        </View>
+      )}
+      {section === "Terms & privacy" && (
+        <View style={{ gap: 16 }}>
+          <Text style={s.cardTitle}>Preview data notice</Text>
+          <Text style={s.body}>
+            Account details, preferences and orders are stored for this app.
+            Your PDFs are private to your account and the assigned shop. Owner
+            registration documents are private to that owner.
+          </Text>
+          <Text style={s.small}>
+            This is an MVP preview. Formal service terms, retention rules and
+            account deletion support still need to be finalized before public
+            launch.
+          </Text>
+        </View>
+      )}
+      {saved ? (
+        <Text accessibilityRole="alert" style={{ color: colors.primary }}>
+          {saved}
+        </Text>
+      ) : null}
+    </View>
+  );
   return (
     <Frame
       title="Profile"
       subtitle="Your account, preferences and support."
       tab="Profile"
-      scrollRef={scrollRef}
     >
       <Card>
         <View style={[s.avatar, { borderRadius: 28 }]}>
@@ -1087,8 +1181,11 @@ function Profile() {
           {user.phone ? " · " + user.phone : ""}
         </Text>
         <LinkText onPress={() => toggleSection("Edit personal details")}>
-          Edit personal details →
+          {section === "Edit personal details"
+            ? "Hide personal details ↑"
+            : "Edit personal details →"}
         </LinkText>
+        {section === "Edit personal details" && sectionContent}
       </Card>
       <Card>
         {[
@@ -1099,176 +1196,28 @@ function Profile() {
           "Help & support",
           "Terms & privacy",
         ].map((label) => (
-          <Pressable
-            key={label}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: section === label }}
-            onPress={() => toggleSection(label)}
-            style={[s.between, { minHeight: 44 }]}
-          >
-            <Text
-              style={[s.body, section === label && { color: colors.primary }]}
+          <View key={label} style={{ gap: 8 }}>
+            <Pressable
+              accessibilityLabel={label}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: section === label }}
+              onPress={() => toggleSection(label)}
+              style={[s.between, { minHeight: 44 }]}
             >
-              {label}
-            </Text>
-            <Text style={{ color: colors.primary }}>
-              {section === label ? "⌄" : "›"}
-            </Text>
-          </Pressable>
+              <Text
+                style={[s.body, section === label && { color: colors.primary }]}
+              >
+                {label}
+              </Text>
+              <Text style={{ color: colors.primary }}>
+                {section === label ? "⌄" : "›"}
+              </Text>
+            </Pressable>
+            {section === label && sectionContent}
+          </View>
         ))}
       </Card>
-      {!!section && (
-        <View
-          key={section}
-          style={{ gap: 20 }}
-          onLayout={(event) => {
-            if (pendingScroll.current) {
-              pendingScroll.current = false;
-              scrollRef.current?.scrollTo({
-                y: Math.max(0, event.nativeEvent.layout.y - 20),
-                animated: false,
-              });
-            }
-          }}
-        >
-          {section === "Edit personal details" && (
-            <Card>
-              <Field label="Full name" value={name} onChangeText={setName} />
-              <Field
-                label="Mobile number"
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-              />
-              <Button
-                title="Save details"
-                loading={busy}
-                onPress={() =>
-                  void run(async () => {
-                    await app.updateProfile({ name, phone });
-                    setSaved("Details saved.");
-                  })
-                }
-              />
-            </Card>
-          )}
-          {section === "Saved shops" && (
-            <View style={{ gap: 16 }}>
-              {app.shops
-                .filter((s) => user.savedShops?.includes(s._id))
-                .map((s) => (
-                  <ShopCard key={s._id} shop={s} compact />
-                ))}
-              {!user.savedShops?.length && (
-                <Text style={s.muted}>
-                  Save a shop from its details page to find it here.
-                </Text>
-              )}
-            </View>
-          )}
-          {section === "Notifications" && (
-            <Card>
-              <Text style={s.body}>
-                {Platform.OS === "web"
-                  ? "Your pickup updates appear in Orders. Phone alerts are available in the PaPrint mobile app."
-                  : app.notificationMessage ||
-                    "Your pickup updates appear in Orders. Enable phone alerts to get notified."}
-              </Text>
-              {Platform.OS !== "web" && (
-                <Button
-                  title="Enable phone alerts"
-                  secondary
-                  loading={busy}
-                  onPress={() => void run(app.enableNotifications)}
-                />
-              )}
-            </Card>
-          )}
-          {section === "Payment history" && (
-            <Card>
-              {app.orders.length ? (
-                app.orders.map((o) => (
-                  <Pair
-                    key={o._id}
-                    label={orderCode(o._id)}
-                    value={money(o.amount) + " · " + paymentLabel(o)}
-                  />
-                ))
-              ) : (
-                <Text style={s.muted}>No payments yet.</Text>
-              )}
-            </Card>
-          )}
-          {section === "Printing preferences" && (
-            <Card>
-              <Text style={s.cardTitle}>Default paper</Text>
-              <Segments
-                values={["A4", "Letter", "Legal"] as const}
-                value={paper}
-                onChange={setPaper}
-              />
-              <View style={s.between}>
-                <Text style={s.body}>Reduce motion</Text>
-                <Switch
-                  accessibilityLabel="Reduce motion"
-                  value={quiet}
-                  onValueChange={setQuiet}
-                  trackColor={{ true: colors.primary, false: colors.line }}
-                />
-              </View>
-              <Button
-                title="Save settings"
-                loading={busy}
-                onPress={() =>
-                  void run(async () => {
-                    await app.updateProfile({
-                      defaultPaper: paper,
-                      reducedMotion: quiet,
-                    });
-                    setSaved("Settings saved.");
-                  })
-                }
-              />
-            </Card>
-          )}
-          {section === "Help & support" && (
-            <Card>
-              <Text style={s.cardTitle}>Printing with PaPrint</Text>
-              <Text style={s.body}>
-                Choose a shop, upload an unlocked PDF, set your print options,
-                then place an order. Pay the shop when you collect your prints.
-              </Text>
-              <Text style={s.body}>
-                The shop updates Preparing, Printing, and Done. Your pickup code
-                appears when your prints are ready.
-              </Text>
-              <Text style={s.small}>
-                For an order issue, use the contact details on your shop’s page.
-              </Text>
-            </Card>
-          )}
-          {section === "Terms & privacy" && (
-            <Card>
-              <Text style={s.cardTitle}>Preview data notice</Text>
-              <Text style={s.body}>
-                Account details, preferences and orders are stored for this app.
-                Your PDFs are private to your account and the assigned shop.
-                Owner registration documents are private to that owner.
-              </Text>
-              <Text style={s.small}>
-                This is an MVP preview. Formal service terms, retention rules
-                and account deletion support still need to be finalized before
-                public launch.
-              </Text>
-            </Card>
-          )}
-        </View>
-      )}
-      {saved ? (
-        <Text accessibilityRole="alert" style={{ color: colors.primary }}>
-          {saved}
-        </Text>
-      ) : null}
+
       {user.accountType === "owner" && (
         <Button
           title="Switch to shop workspace"
@@ -1296,6 +1245,7 @@ function AccountRoute() {
     id?: string;
     amount?: string;
     view?: string;
+    status?: string;
   }>();
   const app = useApp();
   const screen = typeof params.page === "string" ? params.page : "home";
@@ -1322,7 +1272,7 @@ function AccountRoute() {
     );
   if (app.user.accountType === "admin")
     return screen === "admin" ? (
-      <Admin id={params.id || ""} />
+      <Admin id={params.id || ""} status={params.status} />
     ) : (
       <Redirect href="/admin" />
     );

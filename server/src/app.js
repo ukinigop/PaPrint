@@ -34,7 +34,15 @@ export function createApp({
   const app = express();
   if (trustProxy) app.set("trust proxy", 1);
   app.use(
-    helmet(),
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          // The owner print preview embeds an authenticated, locally created PDF blob.
+          frameSrc: ["'self'", "blob:"],
+          objectSrc: ["blob:"],
+        },
+      },
+    }),
     cors({ origin: corsOrigin }),
     express.json({ limit: "32kb" }),
   );

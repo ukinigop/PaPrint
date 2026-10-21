@@ -37,6 +37,9 @@ import {
 import { MotionButton as Button } from "./motion";
 import * as api from "./api";
 import type { Order, Shop } from "./types";
+import { OwnerPrintPreview } from "./OwnerPrintPreview";
+import { OwnerFileDownload } from "./OwnerFileDownload";
+import { filePrintRange } from "./printing";
 import {
   ownerSnapshot,
   ownerDirty,
@@ -112,6 +115,10 @@ export function Workspace({ view, id }: { view: string; id: string }) {
     reason: string;
   } | null>(null);
   const order = app.ownerOrders.find((o) => o._id === id);
+  const [printSelection, setPrintSelection] = useState<{
+    orderId: string;
+    fileId: string;
+  } | null>(null);
   const registering =
     view === "Business registration" ||
     (view === "Overview" &&
@@ -677,19 +684,62 @@ export function Workspace({ view, id }: { view: string; id: string }) {
               >
                 <Card style={fieldColumn}>
                   <Text style={s.cardTitle}>Print specifications</Text>
+                  {Platform.OS === "web" &&
+                    order.status === "Queued" &&
+                    shop?.registrationStatus === "approved" && (
+                      <Text style={s.small}>
+                        Choose Start printing to begin the job and unlock the
+                        file print controls.
+                      </Text>
+                    )}
                   {order.files.map((f) => (
-                    <View key={f.upload} style={{ gap: 10 }}>
+                    <View key={order._id + ":" + f.upload} style={{ gap: 10 }}>
                       <Pair label="File" value={f.name} />
-                      <Button
-                        title="Preview / download file"
-                        secondary
-                        loading={busy}
-                        onPress={() =>
-                          void run(() =>
-                            api.openPrintFile(order._id, f.upload, "", true),
-                          )
-                        }
+                      <OwnerFileDownload
+                        orderId={order._id}
+                        fileId={f.upload}
                       />
+                      {Platform.OS === "web" &&
+                        order.status === "Printing" &&
+                        shop?.registrationStatus === "approved" &&
+                        (filePrintRange(
+                          order.files,
+                          f.upload,
+                          order.settings.pageRange,
+                        ) ? (
+                          <>
+                            <Button
+                              title="Print file"
+                              disabled={busy}
+                              onPress={() =>
+                                setPrintSelection({
+                                  orderId: order._id,
+                                  fileId: f.upload,
+                                })
+                              }
+                            />
+                            {printSelection?.orderId === order._id &&
+                              printSelection.fileId === f.upload && (
+                                <OwnerPrintPreview
+                                  key={order._id + ":" + f.upload}
+                                  order={order}
+                                  fileId={f.upload}
+                                  name={f.name}
+                                  pages={filePrintRange(
+                                    order.files,
+                                    f.upload,
+                                    order.settings.pageRange,
+                                  )!}
+                                  onClose={() => setPrintSelection(null)}
+                                />
+                              )}
+                          </>
+                        ) : (
+                          <Text style={s.small}>
+                            No pages from this file are selected in the booked
+                            page range.
+                          </Text>
+                        ))}
                     </View>
                   ))}
                   <Pair

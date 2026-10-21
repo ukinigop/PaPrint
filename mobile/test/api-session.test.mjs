@@ -159,3 +159,60 @@ test("unreadable server errors give actionable feedback", async () => {
   });
   await assert.rejects(api.request("/quote"), /unreadable response.*retry/i);
 });
+
+test("owner print preview uses the authenticated workspace file route and original PDF bytes", async () => {
+  await api.acceptAccount({ token: "owner-token", user: { id: "owner" } });
+  const pdf = new Blob(["%PDF-1.7 sample"], { type: "application/pdf" });
+  globalThis.fetch = async (url, options) => {
+    assert.ok(url.endsWith("/api/workspace/orders/order/files/file"));
+    assert.ok(!url.includes("owner-token"));
+    assert.equal(options.headers.Authorization, "Bearer owner-token");
+    return { ok: true, blob: async () => pdf };
+  };
+  assert.equal(await api.loadOwnerPrintPdf("order", "file"), pdf);
+});
+test("a delayed private print PDF cannot enter a different account", async () => {
+  await api.acceptAccount({ token: "old", user: { id: "old-owner" } });
+  const pending = deferred(),
+    started = deferred();
+  globalThis.fetch = async () => ({
+    ok: true,
+    blob: () => {
+      started.resolve();
+      return pending.promise;
+    },
+  });
+  const preview = api.loadOwnerPrintPdf("order", "file");
+  await started.promise;
+  await api.acceptAccount({ token: "new", user: { id: "new-owner" } });
+  pending.resolve(new Blob(["%PDF-1.7 private"], { type: "application/pdf" }));
+  await assert.rejects(preview, StaleSessionError);
+});
+test("private print preview handles denied access, expired sessions and unexpected content", async () => {
+  await api.acceptAccount({ token: "owner", user: { id: "owner" } });
+  globalThis.fetch = async () =>
+    response({ message: "Shop approval required." }, 403);
+  await assert.rejects(
+    api.loadOwnerPrintPdf("order", "file"),
+    /approval required/,
+  );
+  globalThis.fetch = async () => ({
+    ok: true,
+    blob: async () => new Blob(["<html>error</html>"], { type: "text/html" }),
+  });
+  await assert.rejects(api.loadOwnerPrintPdf("order", "file"), /not a PDF/);
+  let expired = 0;
+  const off = api.onSessionExpired(() => expired++);
+  try {
+    globalThis.fetch = async () =>
+      response({ message: "Session expired" }, 401);
+    await assert.rejects(
+      api.loadOwnerPrintPdf("order", "file"),
+      StaleSessionError,
+    );
+    assert.equal(expired, 1);
+    assert.equal(storage.has("paprint.accountToken"), false);
+  } finally {
+    off();
+  }
+});

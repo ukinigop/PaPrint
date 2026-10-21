@@ -67,6 +67,15 @@ after(async () => {
   await mongo?.stop();
   if (folder) await rm(folder, { recursive: true, force: true });
 });
+test("private PDF previews allow local blobs while retaining other security restrictions", async () => {
+  const response = await request(app).get("/api/health").expect(200);
+  const policy = response.headers["content-security-policy"];
+  assert.match(policy, /(?:^|;)frame-src 'self' blob:(?:;|$)/);
+  assert.match(policy, /(?:^|;)object-src blob:(?:;|$)/);
+  assert.match(policy, /(?:^|;)script-src 'self'(?:;|$)/);
+  assert.match(policy, /(?:^|;)frame-ancestors 'self'(?:;|$)/);
+});
+
 test("shops require a session and shop PIN is enforced", async () => {
   assert.equal((await request(app).get("/api/shops")).status, 401);
   assert.equal(

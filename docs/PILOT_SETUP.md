@@ -1,6 +1,8 @@
 # Local pilot: admins, partner approval and operating controls
 
-All changes in this batch are local. Nothing is pushed or deployed automatically.
+This guide covers partner approval and operating controls. Deployment follows the repository's configured Git/Vercel workflow.
+
+See [printing from the owner workspace](OWNER_PRINTING.md) for the web Print file control, page ranges, printer settings and manual verification.
 
 ## Create an administrator
 
@@ -63,6 +65,8 @@ Legacy sessions require an approved shop. `POST /api/orders/:id/payment` confirm
 | `POST /api/orders/:id/payment`                   | Enabled legacy session; ready pickup payment for own shop    |
 
 ## Verification
+
+Approval-dashboard check (22 October 2026): Submitted, Approved and Rejected tabs switch correctly. The selected status is retained in the page URL when opening a registration and refreshing. Switching tabs clears the previous registration selection. Verified with disposable local registrations; TypeScript, lint and web export pass.
 
 Run `npm test`, `npm run typecheck`, `npm --prefix mobile run lint`, and `npm --prefix mobile run build:web`.
 

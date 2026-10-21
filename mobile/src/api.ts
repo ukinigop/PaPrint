@@ -207,6 +207,53 @@ export async function openPrintFile(
     shopToken,
   );
 }
+// Fetch through the existing owner-authorized route. Credentials never enter a PDF URL.
+export async function loadOwnerPrintPdf(orderId: string, fileId: string) {
+  const current = captureSession();
+  const requestToken = token;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(
+      `${baseUrl}/api/workspace/orders/${encodeURIComponent(orderId)}/files/${encodeURIComponent(fileId)}`,
+      {
+        headers: { Authorization: `Bearer ${requestToken}` },
+        signal: controller.signal,
+      },
+    );
+    requireCurrent(current);
+    if (!response.ok) {
+      if (response.status === 401 && accountSession && requestToken === token) {
+        const clearing = clearAccount();
+        expired?.();
+        await clearing;
+        requireCurrent(current);
+      }
+      const data = await response.json().catch(() => ({}));
+      throw new Error(
+        data.message || "Could not load this PDF for printing. Please retry.",
+      );
+    }
+    const blob = await response.blob();
+    const signature = await blob.slice(0, 5).text();
+    requireCurrent(current);
+    if (blob.type.split(";")[0] !== "application/pdf" || signature !== "%PDF-")
+      throw new Error(
+        "This response is not a PDF. Please retry or download the original file.",
+      );
+    return blob;
+  } catch (error) {
+    requireCurrent(current);
+    if (
+      error instanceof TypeError ||
+      (error instanceof Error && error.name === "AbortError")
+    )
+      throw new Error("Cannot load the PDF. Check your connection and retry.");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 export async function openPrivatePdf(
   route: string,
   fileId: string,

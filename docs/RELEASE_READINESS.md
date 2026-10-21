@@ -28,7 +28,29 @@ Authenticated Vercel access is still required to confirm the production branch/p
 
 Confirm a named production database, stable JWT secret, private GridFS storage, legacy access disabled, sample-shop seeding disabled and no hosted frontend override pointing to localhost. Preserve existing database records and the administrator account. Check the existing administrator's role with authorized access; do not create or promote a different real account as a substitute.
 
-The Vercel dashboard opened at login. Automatic approval review rejected starting the GitHub sign-in flow without specific authentication authorization. No alternate authentication path was attempted. Publishing and the post-release checks remain pending that access.
+The user explicitly authorized GitHub sign-in and deployment. The browser sign-in reached GitHub's credential form and requires the user's login; authenticated Vercel dashboard inspection remains pending. The existing Git integration deployed the release without changing dashboard settings.
+
+## Published release
+
+- Application commit: `4bda0708805a654532ea0557217daf1948173e2c`, pushed to `main`.
+- GitHub's Vercel status: successful. [Deployment](https://vercel.com/niku-gaza/paprint/6oLLGwNB9BNMiCy5suBGk9WB7xeX).
+- Production: [paprint.vercel.app](https://paprint.vercel.app).
+- Post-deployment public checks passed: health, 3 MB upload configuration, protected order/admin endpoints and disabled legacy access.
+- Six direct links and the entry JavaScript passed. The actual production entry asset contains the new checkout cache, registration steps and operating-conflict UI; the removed GCash placeholder is absent. The live browser login shows no account-role selector.
+- Read-only inspection of the explicitly configured `paprint` database confirmed the designated administrator retains the admin role; no existing account was changed.
+- After explicit user authorization, the full production fixture test passed: temporary customer/owner signup, administrator authorization, registration PDF storage, approval with closed default, owner opening, booking, printing, ready status, pickup cash confirmation, collection, customer cancellation, owner rejection and authorized private PDF download. Customer access to administrator endpoints and disabled legacy PIN access were also verified.
+- Cleanup removed all three temporary test accounts and four private PDFs, along with the test shop, uploads, orders and sessions, using captured fixture IDs. The designated administrator retained the admin role. Existing accounts and orders were preserved.
+- No rollback was needed. Existing production records and configuration were preserved.
+
+The results above describe the previous deployed application commit, `4bda070`.
+
+## Interface and printing update — 22 October 2026
+
+The next main-branch update adds owner PDF previews and printing guidance, isolates file download loading, preserves approval filters in URLs, simplifies customer order lists/details and removes customer download buttons. Profile sections expand directly beneath their own rows, including inline save feedback, without forced scrolling.
+
+Local validation passed: 28 backend integration tests using temporary MongoDB, 26 frontend tests, TypeScript, lint and web export. Browser checks covered approval-filter navigation/reloads, independent file loading and failure recovery, Preparing/Printing/Done controls, customer Active/History and pickup/cancellation details, and all six Profile sections plus personal details and saving preferences. No production database was modified for these checks.
+
+Native PDF rendering, browser print-dialog behavior and physical printer output remain manual acceptance checks; browser automation could not open the blob PDF viewer. The existing authorized download remains the owner fallback. A main push may trigger Vercel; the earlier deployment results do not verify this new release.
 
 ## Live smoke check after publishing
 
