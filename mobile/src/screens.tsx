@@ -691,7 +691,7 @@ function Options() {
         onChange={(paper) => change({ paper })}
       />
       <Card>
-        <Pair label="Copies" value={String(settings.copies)} />
+        <Text style={s.small}>Copies</Text>
         <View style={s.between}>
           <Button
             title="−"
@@ -699,7 +699,9 @@ function Options() {
             disabled={settings.copies <= 1}
             onPress={() => change({ copies: settings.copies - 1 })}
           />
-          <Text style={s.cardTitle}>{settings.copies}</Text>
+          <Text style={[s.cardTitle, { flex: 1, textAlign: "center" }]}>
+            {settings.copies}
+          </Text>
           <Button
             title="+"
             secondary
