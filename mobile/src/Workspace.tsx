@@ -34,7 +34,7 @@ import {
   Segments,
   stage,
 } from "./design";
-import { MotionButton as Button } from "./motion";
+import { MotionButton as Button, SuccessNotice } from "./motion";
 import * as api from "./api";
 import type { Order, Shop } from "./types";
 import { OwnerPrintPreview } from "./OwnerPrintPreview";
@@ -356,11 +356,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
               />
             </Card>
           )}
-          {notice ? (
-            <Text accessibilityRole="alert" style={{ color: colors.primary }}>
-              {notice}
-            </Text>
-          ) : null}
+          {notice ? <SuccessNotice>{notice}</SuccessNotice> : null}
           {(registering || view === "Shop profile") && form.conflict && (
             <Card>
               <Text accessibilityRole="alert" style={{ color: colors.error }}>

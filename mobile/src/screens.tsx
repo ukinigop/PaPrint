@@ -37,7 +37,14 @@ import {
   Segments,
   stage,
 } from "./design";
-import { MotionButton as Button, UploadProgress } from "./motion";
+import {
+  MotionButton as Button,
+  MotionCardPressable,
+  MotionReveal,
+  DisclosureChevron,
+  SuccessNotice,
+  UploadProgress,
+} from "./motion";
 import { AccountLoading, AccountScreen } from "./AccountScreen";
 import { useApp } from "./state";
 import * as api from "./api";
@@ -206,7 +213,7 @@ function useAction() {
 }
 function ShopCard({ shop, compact }: { shop: Shop; compact?: boolean }) {
   return (
-    <Pressable
+    <MotionCardPressable
       accessibilityRole="button"
       accessibilityLabel={"View " + shop.name}
       onPress={() =>
@@ -229,16 +236,18 @@ function ShopCard({ shop, compact }: { shop: Shop; compact?: boolean }) {
               B&W from {money(shop.monoRate)} / page · Color from{" "}
               {money(shop.colorRate)}
             </Text>
-            <Pill>{shop.open ? "Open now" : "Closed"}</Pill>
+            <Pill tone={shop.open ? "positive" : "neutral"}>
+              {shop.open ? "Open now" : "Closed"}
+            </Pill>
           </>
         )}
       </Card>
-    </Pressable>
+    </MotionCardPressable>
   );
 }
 function OrderCard({ order }: { order: Order }) {
   return (
-    <Pressable
+    <MotionCardPressable
       accessibilityRole="button"
       accessibilityLabel={"View order " + orderCode(order._id)}
       onPress={() =>
@@ -248,7 +257,19 @@ function OrderCard({ order }: { order: Order }) {
       <Card>
         <View style={s.between}>
           <Text style={s.cardTitle}>{orderCode(order._id)}</Text>
-          <Pill>{stage(order.status)}</Pill>
+          <Pill
+            tone={
+              order.status === "Ready for pickup"
+                ? "positive"
+                : order.status === "Rejected"
+                  ? "negative"
+                  : isTerminalOrder(order)
+                    ? "neutral"
+                    : "primary"
+            }
+          >
+            {stage(order.status)}
+          </Pill>
         </View>
         <Text style={s.body}>{order.shop.name}</Text>
         <Text style={s.small}>
@@ -264,7 +285,7 @@ function OrderCard({ order }: { order: Order }) {
         </Text>
         <Text style={{ color: colors.primary }}>View order →</Text>
       </Card>
-    </Pressable>
+    </MotionCardPressable>
   );
 }
 function Home() {
@@ -1025,7 +1046,7 @@ function Profile() {
     .slice(0, 2)
     .join("");
   const sectionContent = (
-    <View style={{ gap: 16, paddingVertical: 12 }}>
+    <MotionReveal key={section} style={{ gap: 16, paddingVertical: 12 }}>
       {section === "Edit personal details" && (
         <View style={{ gap: 16 }}>
           <Field label="Full name" value={name} onChangeText={setName} />
@@ -1157,12 +1178,8 @@ function Profile() {
           </Text>
         </View>
       )}
-      {saved ? (
-        <Text accessibilityRole="alert" style={{ color: colors.primary }}>
-          {saved}
-        </Text>
-      ) : null}
-    </View>
+      {saved ? <SuccessNotice>{saved}</SuccessNotice> : null}
+    </MotionReveal>
   );
   return (
     <Frame
@@ -1212,9 +1229,7 @@ function Profile() {
               >
                 {label}
               </Text>
-              <Text style={{ color: colors.primary }}>
-                {section === label ? "⌄" : "›"}
-              </Text>
+              <DisclosureChevron expanded={section === label} />
             </Pressable>
             {section === label && sectionContent}
           </View>

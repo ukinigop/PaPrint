@@ -100,18 +100,32 @@ export function LinkText({
     </Pressable>
   );
 }
-export function Pill({ children }: { children: React.ReactNode }) {
+export function Pill({
+  children,
+  tone = "primary",
+}: {
+  children: React.ReactNode;
+  tone?: "primary" | "positive" | "neutral" | "negative";
+}) {
+  const palette = {
+    primary: { background: colors.soft, text: colors.primary },
+    positive: { background: colors.successSurface, text: colors.success },
+    neutral: { background: colors.line, text: colors.ink },
+    negative: { background: colors.errorSurface, text: colors.error },
+  }[tone];
   return (
     <View
       style={{
         alignSelf: "flex-start",
-        backgroundColor: colors.soft,
+        backgroundColor: palette.background,
         paddingHorizontal: 10,
-        paddingVertical: 8,
+        paddingVertical: 6,
         borderRadius: 12,
       }}
     >
-      <Text style={{ fontSize: 11, color: colors.primary }}>{children}</Text>
+      <Text style={{ fontSize: 12, lineHeight: 18, color: palette.text }}>
+        {children}
+      </Text>
     </View>
   );
 }

@@ -2,7 +2,7 @@ import React from "react";
 import { Card, Field } from "./design";
 import { Text } from "./ui";
 import { s } from "./styles";
-import { MotionButton as Button } from "./motion";
+import { MotionButton as Button, MotionReveal } from "./motion";
 import type { Order } from "./types";
 
 export function OrderOutcome({ order }: { order: Order }) {
@@ -45,30 +45,32 @@ export function EndOrderPanel({
   onConfirm: () => void;
 }) {
   return (
-    <Card>
-      <Text style={s.cardTitle}>
-        {reject ? "Reject this order?" : "Cancel this order?"}
-      </Text>
-      <Text style={s.body}>
-        {reject
-          ? "Explain why you cannot print this order. The customer will see your reason."
-          : "This ends the booking before printing. No payment will be due."}
-      </Text>
-      <Field
-        label={reject ? "Rejection reason" : "Cancellation reason (optional)"}
-        value={reason}
-        onChangeText={onReason}
-        maxLength={500}
-        multiline
-        editable={!busy}
-      />
-      <Button title="Keep order" secondary disabled={busy} onPress={onKeep} />
-      <Button
-        title={reject ? "Confirm rejection" : "Confirm cancellation"}
-        loading={busy}
-        disabled={reject && !reason.trim()}
-        onPress={onConfirm}
-      />
-    </Card>
+    <MotionReveal>
+      <Card>
+        <Text style={s.cardTitle}>
+          {reject ? "Reject this order?" : "Cancel this order?"}
+        </Text>
+        <Text style={s.body}>
+          {reject
+            ? "Explain why you cannot print this order. The customer will see your reason."
+            : "This ends the booking before printing. No payment will be due."}
+        </Text>
+        <Field
+          label={reject ? "Rejection reason" : "Cancellation reason (optional)"}
+          value={reason}
+          onChangeText={onReason}
+          maxLength={500}
+          multiline
+          editable={!busy}
+        />
+        <Button title="Keep order" secondary disabled={busy} onPress={onKeep} />
+        <Button
+          title={reject ? "Confirm rejection" : "Confirm cancellation"}
+          loading={busy}
+          disabled={reject && !reason.trim()}
+          onPress={onConfirm}
+        />
+      </Card>
+    </MotionReveal>
   );
 }

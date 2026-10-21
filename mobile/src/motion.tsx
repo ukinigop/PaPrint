@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  View,
+  type PressableProps,
+  type ViewStyle,
+} from "react-native";
 import Animated, {
   cubicBezier,
   useReducedMotion,
@@ -9,11 +15,117 @@ import { Text } from "./ui";
 import { s } from "./styles";
 import { colors } from "./theme";
 
+const revealKeyframes = { from: { opacity: 0 }, to: { opacity: 1 } };
+
 export const MotionPreference = createContext(false);
 export function useQuietMotion() {
   const preference = useContext(MotionPreference);
   const system = useReducedMotion();
   return preference || system;
+}
+
+// Feedback on the touched card only; no entrance animation on lists or tabs.
+export function MotionCardPressable({
+  children,
+  ...props
+}: Omit<PressableProps, "children" | "style"> & {
+  children: React.ReactNode;
+}) {
+  const [pressed, setPressed] = useState(false);
+  const quiet = useQuietMotion();
+  return (
+    <Pressable
+      {...props}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      pressRetentionOffset={16}
+    >
+      <Animated.View
+        style={{
+          opacity: pressed ? 0.92 : 1,
+          transform: [{ scale: pressed && !quiet ? 0.985 : 1 }],
+          transitionProperty: ["transform", "opacity"],
+          transitionDuration: quiet ? 0 : 120,
+          transitionTimingFunction: cubicBezier(0.23, 1, 0.32, 1),
+        }}
+      >
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// Keep layout immediate. Only fade newly opened content; don't animate height.
+export function MotionReveal({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: ViewStyle;
+}) {
+  const quiet = useQuietMotion();
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          animationName: quiet ? undefined : revealKeyframes,
+          animationDuration: 140,
+          animationTimingFunction: cubicBezier(0.23, 1, 0.32, 1),
+          animationIterationCount: 1,
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+export function DisclosureChevron({ expanded }: { expanded: boolean }) {
+  const quiet = useQuietMotion();
+  return (
+    <Animated.View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{
+        transform: [{ rotate: expanded ? "90deg" : "0deg" }],
+        transitionProperty: "transform",
+        transitionDuration: quiet ? 0 : 140,
+        transitionTimingFunction: cubicBezier(0.23, 1, 0.32, 1),
+      }}
+    >
+      <Text style={{ color: colors.primary, fontSize: 22, lineHeight: 26 }}>
+        ›
+      </Text>
+    </Animated.View>
+  );
+}
+
+export function SuccessNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <MotionReveal>
+      <View
+        accessibilityRole="alert"
+        style={{
+          flexDirection: "row",
+          alignItems: "flex-start",
+          gap: 10,
+          padding: 12,
+          borderRadius: 12,
+          backgroundColor: colors.successSurface,
+          borderWidth: 1,
+          borderColor: colors.mint,
+        }}
+      >
+        <Text accessible={false} style={{ color: colors.success }}>
+          ✓
+        </Text>
+        <Text style={[s.body, { color: colors.success, flex: 1 }]}>
+          {children}
+        </Text>
+      </View>
+    </MotionReveal>
+  );
 }
 export function MotionButton({
   title,
