@@ -35,31 +35,71 @@ const artwork = {
   ],
 };
 // Finite selection feedback, inspired by the supplied BrewedOps animated-icon example.
-// Only the icon's moving part animates; navigation never waits for it.
+// Selection gives the whole icon a visible lift while its moving part responds.
+// Navigation never waits for the animation, including on repeated taps.
+const iconSize = 26;
+const pose = (y: number, scale: number, degrees = 0) => ({
+  transform: [
+    { translateY: y },
+    { scale },
+    { rotate: `${degrees}deg` as `${number}deg` },
+  ],
+});
+const selectionFrames = {
+  Print: {
+    "0%": pose(0, 1),
+    "20%": pose(-3, 1.12, -5),
+    "45%": pose(-3, 1.12, 4),
+    "70%": pose(-1, 1.04, -2),
+    "100%": pose(0, 1),
+  },
+  Shops: {
+    "0%": pose(0, 1),
+    "25%": pose(-3, 1.12),
+    "60%": pose(-2, 1.08),
+    "100%": pose(0, 1),
+  },
+  Orders: {
+    "0%": pose(0, 1),
+    "20%": pose(-4, 1.12, -7),
+    "55%": pose(-2, 1.08, 4),
+    "100%": pose(0, 1),
+  },
+  Profile: {
+    "0%": pose(0, 1),
+    "25%": pose(-3, 1.14),
+    "55%": pose(-1, 1.06),
+    "100%": pose(0, 1),
+  },
+};
 const frames = {
   Print: {
-    "0%": { transform: [{ translateY: -1.5 }] },
-    "45%": { transform: [{ translateY: 1.5 }] },
+    "0%": { opacity: 0.65, transform: [{ translateY: -3.5 }] },
+    "35%": { opacity: 1, transform: [{ translateY: 4 }] },
+    "60%": { opacity: 1, transform: [{ translateY: 4 }] },
     "100%": { transform: [{ translateY: 0 }] },
   },
   Shops: {
     "0%": { transform: [{ scaleX: 1 }] },
-    "45%": { transform: [{ scaleX: 0.25 }] },
+    "25%": { transform: [{ scaleX: 0.08 }] },
+    "60%": { transform: [{ scaleX: 0.08 }] },
     "100%": { transform: [{ scaleX: 1 }] },
   },
   Orders: {
-    "0%": { opacity: 0.4, transform: [{ scale: 0.88 }] },
-    "60%": { opacity: 1, transform: [{ scale: 1 }] },
+    "0%": { opacity: 0.15, transform: [{ scale: 0.45 }] },
+    "35%": { opacity: 1, transform: [{ scale: 1.3 }] },
+    "65%": { opacity: 1, transform: [{ scale: 0.95 }] },
     "100%": { opacity: 1, transform: [{ scale: 1 }] },
   },
   Profile: {
     "0%": { transform: [{ translateY: 0 }] },
-    "35%": { transform: [{ translateY: 1 }] },
-    "65%": { transform: [{ translateY: -0.3 }] },
+    "25%": { transform: [{ translateY: 2.6 }, { scale: 0.92 }] },
+    "50%": { transform: [{ translateY: -0.8 }, { scale: 1.05 }] },
+    "75%": { transform: [{ translateY: 1 }] },
     "100%": { transform: [{ translateY: 0 }] },
   },
 };
-const durations = { Print: 240, Shops: 240, Orders: 200, Profile: 220 };
+const durations = { Print: 560, Shops: 520, Orders: 460, Profile: 500 };
 const emptyEvents = () => ({ Print: 0, Shops: 0, Orders: 0, Profile: 0 });
 function TabIcon({
   tab,
@@ -72,25 +112,36 @@ function TabIcon({
 }) {
   const color = selected ? colors.primary : colors.muted;
   return (
-    <View
+    <Animated.View
+      key={event}
       accessible={false}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={{ width: 24, height: 24 }}
+      style={{
+        width: iconSize,
+        height: iconSize,
+        animationName: event ? selectionFrames[tab] : undefined,
+        animationDuration: durations[tab],
+        animationTimingFunction: cubicBezier(0.23, 1, 0.32, 1),
+        animationIterationCount: 1,
+      }}
     >
       <Image
         source={artwork[tab][0]}
         tintColor={color}
         contentFit="contain"
-        style={{ width: 24, height: 24 }}
+        style={{ width: iconSize, height: iconSize }}
       />
       <Animated.View
         key={event}
         style={{
           position: "absolute",
-          width: 24,
-          height: 24,
-          transformOrigin: tab === "Shops" ? [9, 21, 0] : "center",
+          width: iconSize,
+          height: iconSize,
+          transformOrigin:
+            tab === "Shops"
+              ? [(iconSize * 9) / 24, (iconSize * 21) / 24, 0]
+              : "center",
           animationName: event ? frames[tab] : undefined,
           animationDuration: durations[tab],
           animationTimingFunction: cubicBezier(0.23, 1, 0.32, 1),
@@ -101,10 +152,10 @@ function TabIcon({
           source={artwork[tab][1]}
           tintColor={color}
           contentFit="contain"
-          style={{ width: 24, height: 24 }}
+          style={{ width: iconSize, height: iconSize }}
         />
       </Animated.View>
-    </View>
+    </Animated.View>
   );
 }
 export function CustomerTabBar() {
@@ -154,7 +205,6 @@ export function CustomerTabBar() {
             onPressIn={() => setPressed(tab)}
             onPressOut={() => setPressed(null)}
             onPress={() => {
-              if (selected === tab) return;
               if (!quiet)
                 setMotion((previous) => ({
                   quiet,
@@ -163,7 +213,7 @@ export function CustomerTabBar() {
                     [tab]: previous.events[tab] + 1,
                   },
                 }));
-              router.replace(customerTabRoutes[tab]);
+              if (selected !== tab) router.replace(customerTabRoutes[tab]);
             }}
           >
             <Animated.View
@@ -174,9 +224,9 @@ export function CustomerTabBar() {
                   marginHorizontal: 0,
                   backgroundColor:
                     selected === tab ? colors.soft : "transparent",
-                  transform: [{ scale: pressed === tab && !quiet ? 0.97 : 1 }],
+                  transform: [{ scale: pressed === tab && !quiet ? 0.93 : 1 }],
                   transitionProperty: ["backgroundColor", "transform"],
-                  transitionDuration: quiet ? 0 : 120,
+                  transitionDuration: quiet ? 0 : 100,
                   transitionTimingFunction: cubicBezier(0.23, 1, 0.32, 1),
                 },
               ]}
