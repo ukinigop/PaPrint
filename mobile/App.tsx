@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { Stack, router } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { useFonts } from "expo-font";
 import { Manrope_500Medium } from "@expo-google-fonts/manrope/500Medium";
 import { Manrope_600SemiBold } from "@expo-google-fonts/manrope/600SemiBold";
@@ -12,6 +12,7 @@ import { AppProvider, useApp } from "./src/state";
 import { MotionPreference } from "./src/motion";
 import { AccountLoading } from "./src/AccountScreen";
 import { colors } from "./src/theme";
+import { CustomerTabBar } from "./src/CustomerTabBar";
 function Navigator() {
   const { user } = useApp();
   useEffect(() => {
@@ -33,13 +34,16 @@ function Navigator() {
   return (
     <MotionPreference.Provider value={user?.reducedMotion || false}>
       <StatusBar style="dark" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: "none",
-          contentStyle: { backgroundColor: colors.surface },
-        }}
-      />
+      <View style={{ flex: 1, backgroundColor: colors.surface }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: "none",
+            contentStyle: { backgroundColor: colors.surface },
+          }}
+        />
+        <CustomerTabBar key={user?.id || "signed-out"} />
+      </View>
     </MotionPreference.Provider>
   );
 }

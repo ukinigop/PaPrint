@@ -56,6 +56,7 @@ import { phoneDigits, validPhone } from "./accountValidation";
 import { useQuote } from "./useQuote";
 import { ShopGallery } from "./ShopGallery";
 import { BookmarkButton } from "./BookmarkButton";
+import type { CustomerTab as Tab } from "./customerTabs";
 import {
   sortShops,
   distanceKm,
@@ -66,14 +67,6 @@ import {
   type Coordinates,
 } from "./shopDiscovery";
 
-type Tab = "Print" | "Shops" | "Orders" | "Profile";
-const tabs = ["Print", "Shops", "Orders", "Profile"] as const;
-const icons = {
-  Print: ["home", "homeActive"],
-  Shops: ["shops", "shopsActive"],
-  Orders: ["orders", "ordersActive"],
-  Profile: ["profile", "profileActive"],
-} as const;
 function Frame({
   title,
   subtitle,
@@ -91,7 +84,10 @@ function Frame({
 }) {
   const app = useApp();
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView
+      style={s.safe}
+      edges={tab ? ["top", "left", "right"] : undefined}
+    >
       <KeyboardAvoidingView
         style={s.app}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -159,47 +155,6 @@ function Frame({
             </Text>
           )}
         </ScrollView>
-        {tab && (
-          <View
-            style={[
-              s.nav,
-              {
-                backgroundColor: colors.surface,
-                paddingHorizontal: 8,
-                marginHorizontal: 24,
-                borderWidth: 0,
-              },
-            ]}
-          >
-            {tabs.map((t) => (
-              <Pressable
-                key={t}
-                accessibilityRole="tab"
-                accessibilityLabel={t}
-                accessibilityState={{ selected: t === tab }}
-                onPress={() =>
-                  router.replace(
-                    (t === "Print"
-                      ? "/home"
-                      : "/" + t.toLowerCase()) as "/home",
-                  )
-                }
-                style={[
-                  s.navItem,
-                  { marginHorizontal: 0 },
-                  t === tab && s.navActive,
-                ]}
-              >
-                <Art name={icons[t][t === tab ? 1 : 0]} size={20} />
-                <Text
-                  style={[s.navLabel, t === tab && { color: colors.primary }]}
-                >
-                  {t}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
