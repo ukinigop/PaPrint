@@ -7,6 +7,7 @@ import {
 } from "./orderStatus";
 import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
 import { Admin } from "./Admin";
+import { Brand } from "./Brand";
 import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -103,10 +104,8 @@ function Frame({
               </LinkText>
             )}
             <View style={s.between}>
-              <Text style={{ fontSize: 11, color: colors.primary }}>
-                PaPrint / NAGA
-              </Text>
-              <Art name="logo" size={28} />
+              <Brand width={106} />
+              <Text style={{ fontSize: 11, color: colors.primary }}>NAGA</Text>
             </View>
             <Text style={[s.heading, { marginTop: 0, letterSpacing: 0 }]}>
               {title}

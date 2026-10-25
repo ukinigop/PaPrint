@@ -11,7 +11,7 @@ import { s } from "./styles";
 import { colors, depth } from "./theme";
 
 const assets = {
-  logo: require("../assets/figma/55213.svg"),
+  logo: require("../assets/brand/icon.png"),
   home: require("../assets/figma/dd244.svg"),
   homeActive: require("../assets/figma/02b46.svg"),
   shops: require("../assets/figma/e0a33.svg"),
@@ -26,7 +26,7 @@ const assets = {
   upload: require("../assets/figma/3eda6.svg"),
   print: require("../assets/figma/475a1.svg"),
   check: require("../assets/figma/57d85.svg"),
-  splash: require("../assets/figma/18e44.svg"),
+  splash: require("../assets/brand/icon-reversed.png"),
   dots: require("../assets/figma/81409.svg"),
 };
 export function Art({

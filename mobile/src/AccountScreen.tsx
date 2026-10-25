@@ -1,3 +1,4 @@
+import { Brand } from "./Brand";
 import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -107,10 +108,8 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
         >
           <View style={{ gap: 4 }}>
             <View style={[s.row, { marginBottom: 8 }]}>
-              <Art name="logo" size={32} />
-              <Text style={{ color: colors.primary, fontSize: 11 }}>
-                PaPrint / NAGA
-              </Text>
+              <Brand width={154} />
+              <Text style={{ color: colors.primary, fontSize: 11 }}>NAGA</Text>
             </View>
             <Text style={s.heading}>
               {signup ? "Create account" : "Welcome back"}
@@ -304,7 +303,7 @@ export function AccountLoading() {
           alignItems: "center",
         }}
       >
-        <Art name="splash" size={48} />
+        <Brand variant="reversed" width={96} />
       </View>
       <Text style={{ fontSize: 36, color: colors.primary, fontWeight: "700" }}>
         PaPrint

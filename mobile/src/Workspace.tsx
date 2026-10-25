@@ -5,6 +5,7 @@ import {
   paymentLabel,
 } from "./orderStatus";
 import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
+import { Brand } from "./Brand";
 import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -23,7 +24,6 @@ import { Text } from "./ui";
 import { s } from "./styles";
 import { colors } from "./theme";
 import {
-  Art,
   Card,
   Field,
   LinkText,
@@ -250,16 +250,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
         {wide ? (
           <View style={{ width: 232, padding: 28, gap: 28 }}>
             <View style={s.row}>
-              <Art name="logo" size={30} />
-              <Text
-                style={{
-                  fontSize: 26,
-                  color: colors.primary,
-                  fontWeight: "700",
-                }}
-              >
-                PaPrint
-              </Text>
+              <Brand width={168} />
             </View>
             <Text style={s.small}>SHOP WORKSPACE</Text>
             {views.map((v) => (
@@ -292,8 +283,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
           <View style={{ padding: 20, gap: 12 }}>
             <View style={s.between}>
               <View style={s.row}>
-                <Art name="logo" size={30} />
-                <Text style={s.cardTitle}>Shop workspace</Text>
+                <Brand width={112} />
               </View>
               <LinkText onPress={() => router.push("/home")}>
                 Customer app
