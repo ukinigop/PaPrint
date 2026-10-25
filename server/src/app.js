@@ -18,6 +18,7 @@ import {
   publicShop,
 } from "./fulfillment.js";
 import { bookingSchema, price } from "./domain.js";
+import { installMaps } from "./maps.js";
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export function createApp({
@@ -30,6 +31,7 @@ export function createApp({
   trustProxy = false,
   pushSender = defaultPushSender,
   corsOrigin = "http://localhost:8081",
+  searchPlaces,
 }) {
   const app = express();
   if (trustProxy) app.set("trust proxy", 1);
@@ -47,6 +49,7 @@ export function createApp({
     express.json({ limit: "32kb" }),
   );
   app.use("/api", rateLimit({ windowMs: 60_000, limit: 180 }));
+  installMaps(app, { searchPlaces });
   const sign = (data) => jwt.sign(data, secret, { expiresIn: "30d" });
   const auth = async (req, res, next) => {
     try {
