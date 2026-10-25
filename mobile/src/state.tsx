@@ -228,7 +228,21 @@ function useAppState() {
       method: "PATCH",
       body: JSON.stringify(data),
     });
-    if (current()) setUser(next);
+    if (current()) {
+      setUser(next);
+      if (data.savedShops)
+        setShops((shops) =>
+          shops.map((shop) => ({
+            ...shop,
+            savedCount: Math.max(
+              0,
+              (shop.savedCount || 0) +
+                Number(next.savedShops.includes(shop._id)) -
+                Number(user?.savedShops.includes(shop._id) || false),
+            ),
+          })),
+        );
+    }
   }
   function completeBooking(order: Order, requestKey: string) {
     setOrders((previous) => [

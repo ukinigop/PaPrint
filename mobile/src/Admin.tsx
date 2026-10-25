@@ -1,7 +1,7 @@
-import { Brand } from "./Brand";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
+  Linking,
   Platform,
   ScrollView,
   View,
@@ -16,6 +16,9 @@ import { s } from "./styles";
 import { useApp } from "./state";
 import * as api from "./api";
 import type { Shop } from "./types";
+import { Brand } from "./Brand";
+import { LocationReviews } from "./LocationReviews";
+import { shopMapUrl } from "./shopDiscovery";
 
 export function Admin({ id, status }: { id: string; status?: string }) {
   const app = useApp();
@@ -154,6 +157,7 @@ export function Admin({ id, status }: { id: string; status?: string }) {
               {notice}
             </Text>
           ) : null}
+          <LocationReviews />
           <Segments
             values={["submitted", "approved", "rejected"]}
             value={filter}
@@ -197,6 +201,21 @@ export function Admin({ id, status }: { id: string; status?: string }) {
                   value={selected.representative || "Not listed"}
                 />
                 <Pair label="Address" value={selected.address} />
+                <Button
+                  title="View registration map pin"
+                  secondary
+                  disabled={!selected.coordinates}
+                  onPress={() => {
+                    void Linking.openURL(shopMapUrl(selected)).catch(() =>
+                      setError("Couldn’t open Maps."),
+                    );
+                  }}
+                />
+                {!selected.coordinates && (
+                  <Text style={s.error}>
+                    This registration needs a storefront pin before approval.
+                  </Text>
+                )}
                 <Pair label="Email" value={selected.email || "Not listed"} />
                 <Pair
                   label="Contact"
@@ -240,7 +259,7 @@ export function Admin({ id, status }: { id: string; status?: string }) {
                     <Button
                       title="Approve partner"
                       loading={busy}
-                      disabled={loading}
+                      disabled={loading || !selected.coordinates}
                       onPress={() => void run(() => decide("approved"))}
                     />
                     <Button

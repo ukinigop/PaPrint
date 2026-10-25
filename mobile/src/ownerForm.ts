@@ -10,6 +10,8 @@ export type OwnerValues = {
   mono: string;
   color: string;
   open: boolean;
+  latitude: string;
+  longitude: string;
 };
 export type OwnerForm = {
   shopId: string;
@@ -29,6 +31,8 @@ export function ownerSnapshot(shop: Shop | null, user: Account): OwnerForm {
     mono: String(shop?.monoRate ?? 2),
     color: String(shop?.colorRate ?? 8),
     open: shop?.open || false,
+    latitude: String(shop?.coordinates?.latitude ?? ""),
+    longitude: String(shop?.coordinates?.longitude ?? ""),
   };
   return {
     shopId: shop?._id || "",

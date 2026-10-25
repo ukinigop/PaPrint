@@ -54,6 +54,14 @@ import { Workspace } from "./Workspace";
 import { StaleSessionError, uploadBatch, placeBooking } from "./customerFlow";
 import { phoneDigits, validPhone } from "./accountValidation";
 import { useQuote } from "./useQuote";
+import { ShopGallery } from "./ShopGallery";
+import {
+  sortShops,
+  distanceKm,
+  shopMapUrl,
+  savedShopLabel,
+  type Coordinates,
+} from "./shopDiscovery";
 
 type Tab = "Print" | "Shops" | "Orders" | "Profile";
 const tabs = ["Print", "Shops", "Orders", "Profile"] as const;
@@ -167,7 +175,11 @@ function Frame({
                 accessibilityLabel={t}
                 accessibilityState={{ selected: t === tab }}
                 onPress={() =>
-                  router.replace((t === "Print" ? "/home" : "/" + t.toLowerCase()) as "/home")
+                  router.replace(
+                    (t === "Print"
+                      ? "/home"
+                      : "/" + t.toLowerCase()) as "/home",
+                  )
                 }
                 style={[
                   s.navItem,
@@ -211,7 +223,15 @@ function useAction() {
   }
   return { busy, run };
 }
-function ShopCard({ shop, compact }: { shop: Shop; compact?: boolean }) {
+function ShopCard({
+  shop,
+  compact,
+  distance,
+}: {
+  shop: Shop;
+  compact?: boolean;
+  distance?: number | null;
+}) {
   return (
     <MotionCardPressable
       accessibilityRole="button"
@@ -221,15 +241,26 @@ function ShopCard({ shop, compact }: { shop: Shop; compact?: boolean }) {
       }
     >
       <Card>
+        <ShopGallery compact />
         <View style={[s.row, { gap: 12 }]}>
-          <View style={[s.shopIcon, { width: 44, height: 44 }]}>
-            <Art name="shop" size={24} />
-          </View>
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={s.cardTitle}>{shop.name}</Text>
-            <Text style={s.small}>{shop.address}</Text>
+            <Text style={s.small}>{shop.locationAddress || shop.address}</Text>
           </View>
         </View>
+        <Text style={s.small}>{savedShopLabel(shop.savedCount)}</Text>
+        <Text style={s.small}>
+          {shop.queue?.ongoing ?? 0} ongoing orders ·{" "}
+          {shop.queue?.preparing ?? 0} preparing · {shop.queue?.printing ?? 0}{" "}
+          printing
+        </Text>
+        {distance !== undefined && (
+          <Text style={s.small}>
+            {distance === null
+              ? "Distance unavailable · shop pin not set"
+              : `${distance.toFixed(1)} km away · straight-line distance`}
+          </Text>
+        )}
         {!compact && (
           <>
             <Text style={[s.body, { color: colors.muted }]}>
@@ -341,10 +372,66 @@ function Shops() {
   const { shops, loading } = useApp();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All shops");
-  const result = shops.filter(
-    (s) =>
-      (filter !== "Open now" || s.open) &&
-      (s.name + " " + s.address).toLowerCase().includes(query.toLowerCase()),
+  const [sort, setSort] = useState("Recommended");
+  const [origin, setOrigin] = useState<Coordinates | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationNotice, setLocationNotice] = useState("");
+  const locationRequest = useRef(0);
+  async function chooseSort(value: string) {
+    const request = ++locationRequest.current;
+    setSort(value);
+    setLocationNotice("");
+    setLocating(false);
+    if (value !== "Nearby" || origin) return;
+    if (!shops.some((shop) => shop.coordinates)) {
+      setLocationNotice(
+        "Shop map pins aren’t available yet. You can still find each shop using its map button.",
+      );
+      return;
+    }
+    setLocating(true);
+    try {
+      const location = await import("expo-location");
+      if (!(await location.requestForegroundPermissionsAsync()).granted)
+        throw new Error(
+          "Location access is off. Enable it in your browser or device settings, then try Nearby again.",
+        );
+      const position = await Promise.race([
+        location.getCurrentPositionAsync({
+          accuracy: location.Accuracy.Balanced,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error("Location took too long. Please try Nearby again."),
+              ),
+            15000,
+          ),
+        ),
+      ]);
+      if (locationRequest.current === request) setOrigin(position.coords);
+    } catch (error) {
+      if (locationRequest.current === request)
+        setLocationNotice(
+          error instanceof Error
+            ? error.message
+            : "Couldn’t find your location. Try again.",
+        );
+    } finally {
+      if (locationRequest.current === request) setLocating(false);
+    }
+  }
+  const result = sortShops(
+    shops.filter(
+      (s) =>
+        (filter !== "Open now" || s.open) &&
+        (s.name + " " + (s.locationAddress || s.address))
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+    ),
+    sort,
+    origin,
   );
   return (
     <Frame
@@ -364,8 +451,31 @@ function Shops() {
         onChange={setFilter}
       />
       <Text style={s.small}>{result.length} partner shops · Naga City</Text>
+      <Segments
+        values={["Recommended", "Most Saved", "Nearby"]}
+        value={sort}
+        onChange={(value) => void chooseSort(value)}
+      />
+      {sort === "Nearby" && (
+        <Text style={s.small}>
+          {locating
+            ? "Finding your location…"
+            : locationNotice ||
+              (origin
+                ? "Closest shops first. Shops without a map pin appear last."
+                : "Use your location to find the closest shops. Your location isn’t saved to your account.")}
+        </Text>
+      )}
       {result.map((shop) => (
-        <ShopCard key={shop._id} shop={shop} />
+        <ShopCard
+          key={shop._id}
+          shop={shop}
+          distance={
+            sort === "Nearby" && origin
+              ? distanceKm(origin, shop.coordinates)
+              : undefined
+          }
+        />
       ))}
       {!result.length && (
         <Text style={s.muted}>
@@ -402,12 +512,24 @@ function ShopDetails({ id }: { id: string }) {
       back="/shops"
     >
       <Card>
-        <Art name="shopLarge" size={38} />
+        <ShopGallery />
         <Text style={s.cardTitle}>{shop.name}</Text>
+        <Text style={s.small}>{savedShopLabel(shop.savedCount)}</Text>
         <Pill>{shop.open ? "Open now" : "Closed"}</Pill>
-        <Text style={s.body}>{shop.address}</Text>
+        <Text style={s.body}>{shop.locationAddress || shop.address}</Text>
         <Pair label="Hours" value={shop.hours || "Contact shop for hours"} />
         <Pair label="Contact" value={shop.contact || "Not listed"} />
+      </Card>
+      <Card>
+        <Text style={s.cardTitle}>Current print queue</Text>
+        <Pair label="Ongoing orders" value={String(shop.queue?.ongoing ?? 0)} />
+        <Pair label="Preparing" value={String(shop.queue?.preparing ?? 0)} />
+        <Pair label="Printing" value={String(shop.queue?.printing ?? 0)} />
+        <Pair label="Ready for pickup" value={String(shop.queue?.ready ?? 0)} />
+        <Text style={s.small}>
+          Updates as the shop progresses orders. Order counts aren’t a wait-time
+          estimate; document sizes and printing settings vary.
+        </Text>
       </Card>
       <Card>
         <Text style={s.cardTitle}>Services</Text>
@@ -445,16 +567,21 @@ function ShopDetails({ id }: { id: string }) {
           )
         }
       />
-      <LinkText
+      <Button
+        secondary
+        title="Where is this shop?"
         onPress={() => {
-          void Linking.openURL(
-            "https://www.google.com/maps/search/?api=1&query=" +
-              encodeURIComponent(shop.address),
+          void Linking.openURL(shopMapUrl(shop)).catch(() =>
+            app.setError("Couldn’t open Maps. Please try again."),
           );
         }}
-      >
-        View location ↗
-      </LinkText>
+      />
+      <Text style={s.small}>
+        Opens Google Maps
+        {shop.coordinates
+          ? " at the shop’s map pin."
+          : " using the shop’s registered address. Confirm the result with the shop if needed."}
+      </Text>
     </Frame>
   );
 }
@@ -570,7 +697,9 @@ function Upload() {
           <Art name="shop" size={24} />
           <Text style={s.cardTitle}>{app.draft.shop.name}</Text>
         </View>
-        <Text style={s.small}>{app.draft.shop.address}</Text>
+        <Text style={s.small}>
+          {app.draft.shop.locationAddress || app.draft.shop.address}
+        </Text>
       </Card>
       <Card style={{ alignItems: "center", paddingVertical: 28 }}>
         <Art name="upload" size={40} />
@@ -932,7 +1061,7 @@ function OrderDetails({ id }: { id: string }) {
           }
         />
         <Text style={s.body}>
-          {order.shop.name} · {order.shop.address}
+          {order.shop.name} · {order.shop.locationAddress || order.shop.address}
         </Text>
         {order.shop.contact && (
           <LinkText

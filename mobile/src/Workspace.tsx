@@ -5,7 +5,6 @@ import {
   paymentLabel,
 } from "./orderStatus";
 import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
-import { Brand } from "./Brand";
 import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -39,6 +38,9 @@ import * as api from "./api";
 import type { Order, Shop } from "./types";
 import { OwnerFilePrint } from "./OwnerFilePrint";
 import { OwnerFileDownload } from "./OwnerFileDownload";
+import { Brand } from "./Brand";
+import { ShopLocationPicker } from "./ShopLocationPicker";
+import { OwnerLocation } from "./OwnerLocation";
 import { filePrintRange } from "./printing";
 import {
   ownerSnapshot,
@@ -77,6 +79,8 @@ export function Workspace({ view, id }: { view: string; id: string }) {
     mono,
     color,
     open,
+    latitude,
+    longitude,
   } = form.values;
   const dirty = ownerDirty(form);
   const edit = <K extends keyof OwnerValues>(key: K, value: OwnerValues[K]) => {
@@ -89,7 +93,6 @@ export function Workspace({ view, id }: { view: string; id: string }) {
   };
   const setName = (value: string) => edit("name", value);
   const setRepresentative = (value: string) => edit("representative", value);
-  const setAddress = (value: string) => edit("address", value);
   const setContact = (value: string) => edit("contact", value);
   const setEmail = (value: string) => edit("email", value);
   const setHours = (value: string) => edit("hours", value);
@@ -158,6 +161,14 @@ export function Workspace({ view, id }: { view: string; id: string }) {
         name,
         representative,
         address,
+        ...(latitude.trim() && longitude.trim()
+          ? {
+              coordinates: {
+                latitude: Number(latitude),
+                longitude: Number(longitude),
+              },
+            }
+          : {}),
         contact,
         email,
         hours,
@@ -289,6 +300,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                 Customer app
               </LinkText>
             </View>
+            <Text style={s.cardTitle}>Shop workspace</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <Segments
                 values={views}
@@ -426,6 +438,14 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                       value={shop?.representative || representative}
                     />
                     <Pair label="Address" value={shop?.address || address} />
+                    <Pair
+                      label="Storefront pin"
+                      value={
+                        shop?.coordinates
+                          ? `${shop.coordinates.latitude.toFixed(6)}, ${shop.coordinates.longitude.toFixed(6)}`
+                          : "Required: go back and choose it on the map"
+                      }
+                    />
                     <Pair label="Business hours" value={shop?.hours || hours} />
                     <Pair label="Contact" value={shop?.contact || contact} />
                     <Pair label="Business email" value={shop?.email || email} />
@@ -484,6 +504,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                       disabled={
                         !confirm ||
                         !shop ||
+                        !shop.coordinates ||
                         shop.documents?.length !== 3 ||
                         form.conflict
                       }
@@ -532,11 +553,34 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                           value={representative}
                           onChangeText={setRepresentative}
                         />
-                        <Field
-                          label="Shop address in Naga City"
-                          placeholder="Sample Street, Bagumbayan, Naga City"
-                          value={address}
-                          onChangeText={setAddress}
+                        <ShopLocationPicker
+                          value={{
+                            address,
+                            coordinates:
+                              latitude.trim() && longitude.trim()
+                                ? {
+                                    latitude: Number(latitude),
+                                    longitude: Number(longitude),
+                                  }
+                                : null,
+                          }}
+                          onChange={(next) => {
+                            setConfirm(false);
+                            setNotice("");
+                            setForm((previous) => ({
+                              ...previous,
+                              values: {
+                                ...previous.values,
+                                address: next.address,
+                                latitude: next.coordinates
+                                  ? String(next.coordinates.latitude)
+                                  : "",
+                                longitude: next.coordinates
+                                  ? String(next.coordinates.longitude)
+                                  : "",
+                              },
+                            }));
+                          }}
                         />
                         <Field
                           label="Contact number"
@@ -882,6 +926,16 @@ export function Workspace({ view, id }: { view: string; id: string }) {
             </>
           ) : view === "Orders" || view === "Overview" ? (
             <>
+              <Text style={s.body}>
+                {
+                  app.ownerOrders.filter(
+                    (order) =>
+                      order.status === "Queued" || order.status === "Printing",
+                  ).length
+                }{" "}
+                ongoing orders · Preparing + Printing. Customers see these same
+                aggregate counts.
+              </Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 20 }}>
                 {["Preparing", "Printing", "Done"].map((label) => (
                   <Card key={label} style={{ flexGrow: 1, minWidth: 130 }}>
@@ -1014,6 +1068,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
               <Pill>{shop?.registrationStatus || "Not registered"}</Pill>
               {shop?.registrationStatus === "approved" && (
                 <>
+                  <OwnerLocation shop={shop} />
                   <Text style={s.cardTitle}>Operating settings</Text>
                   <Text style={s.small}>
                     Business identity and registration documents are locked.

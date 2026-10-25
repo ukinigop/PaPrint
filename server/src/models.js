@@ -35,6 +35,32 @@ export const Shop = model(
     {
       name: String,
       address: String,
+      coordinates: {
+        type: new Schema(
+          { latitude: Number, longitude: Number },
+          { _id: false },
+        ),
+        default: undefined,
+      },
+      locationAddress: String,
+      locationRequest: {
+        type: new Schema(
+          {
+            requestId: String,
+            address: String,
+            coordinates: { latitude: Number, longitude: Number },
+            status: { type: String, enum: ["pending", "approved", "rejected"] },
+            requestedBy: { type: Schema.Types.ObjectId, ref: "User" },
+            requestedAt: Date,
+            reviewedBy: { type: Schema.Types.ObjectId, ref: "User" },
+            reviewedAt: Date,
+            reason: String,
+          },
+          { _id: false },
+        ),
+        default: undefined,
+      },
+      locationReviews: [Schema.Types.Mixed],
       distance: String,
       estimate: String,
       rating: Number,

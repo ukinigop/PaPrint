@@ -7,7 +7,7 @@ import multer from "multer";
 import { PDFDocument } from "pdf-lib";
 import { randomUUID, randomInt } from "node:crypto";
 import { diskStorage } from "./storage.js";
-import { Shop, Upload, Order, Device, AccountSession } from "./models.js";
+import { Shop, Upload, Order, Device, AccountSession, User } from "./models.js";
 import { installAccounts } from "./accounts.js";
 import { installWorkspace } from "./workspace.js";
 import { installAdmin } from "./admin.js";
@@ -149,18 +149,70 @@ export function createApp({
       res.json({ token: sign({ id: shop.id, role: "shop" }), shop });
     },
   );
-  app.get("/api/shops", auth, async (req, res) =>
+  app.get("/api/shops", auth, async (req, res) => {
+    const shops = await Shop.find({
+      $or: [
+        { registrationStatus: "approved" },
+        { registrationStatus: { $exists: false } },
+      ],
+    })
+      .select(publicShop.select)
+      .sort({ open: -1, rating: -1 })
+      .lean();
+    const counts = await User.aggregate([
+      { $match: { savedShops: { $in: shops.map((shop) => shop._id) } } },
+      { $project: { savedShops: { $setUnion: ["$savedShops", []] } } },
+      { $unwind: "$savedShops" },
+      { $group: { _id: "$savedShops", count: { $sum: 1 } } },
+    ]);
+    const byShop = new Map(
+      counts.map((entry) => [String(entry._id), entry.count]),
+    );
+    const queues = await Order.aggregate([
+      {
+        $match: {
+          shop: { $in: shops.map((shop) => shop._id) },
+          status: { $in: ["Queued", "Printing", "Ready for pickup"] },
+        },
+      },
+      {
+        $group: {
+          _id: { shop: "$shop", status: "$status" },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+    const queueByShop = new Map();
+    for (const entry of queues) {
+      const id = String(entry._id.shop);
+      const queue = queueByShop.get(id) || {
+        preparing: 0,
+        printing: 0,
+        ready: 0,
+        ongoing: 0,
+      };
+      const key = {
+        Queued: "preparing",
+        Printing: "printing",
+        "Ready for pickup": "ready",
+      }[entry._id.status];
+      queue[key] = entry.count;
+      queue.ongoing = queue.preparing + queue.printing;
+      queueByShop.set(id, queue);
+    }
     res.json(
-      await Shop.find({
-        $or: [
-          { registrationStatus: "approved" },
-          { registrationStatus: { $exists: false } },
-        ],
-      })
-        .select(publicShop.select)
-        .sort({ open: -1, rating: -1 }),
-    ),
-  );
+      shops.map((shop) => ({
+        ...shop,
+        savedCount: byShop.get(String(shop._id)) || 0,
+        queue: queueByShop.get(String(shop._id)) || {
+          preparing: 0,
+          printing: 0,
+          ready: 0,
+          ongoing: 0,
+        },
+      })),
+    );
+  });
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: maxUploadBytes, files: 5 },

@@ -9,6 +9,8 @@ import {
   publicShop,
 } from "./fulfillment.js";
 import { safeRegistration } from "./admin.js";
+import { randomUUID } from "node:crypto";
+import { coordinatesSchema, locationSchema } from "./shop-location.js";
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
 const schema = z
@@ -16,6 +18,7 @@ const schema = z
     name: z.string().trim().min(2).max(100),
     representative: z.string().trim().min(2).max(80),
     address: z.string().trim().min(5).max(250),
+    coordinates: coordinatesSchema.optional(),
     contact: z.string().trim().min(7).max(20),
     email: z.string().trim().email().max(254),
     hours: z.string().trim().min(3).max(80),
@@ -93,7 +96,10 @@ export function installWorkspace(
         .strict()
         .safeParse(req.body);
       if (!parsed.success)
-        throw fail(400, "Enter valid operating hours, contact and rates.");
+        throw fail(
+          400,
+          "Enter valid operating hours, contact, rates and map coordinates.",
+        );
       const { expectedVersion, ...settings } = parsed.data;
       const updated = await Shop.findOneAndUpdate(
         {
@@ -115,6 +121,45 @@ export function installWorkspace(
           "Operating settings changed in another session. Reload the latest settings before saving.",
         );
       res.json(safe(updated));
+    },
+  );
+  app.post(
+    "/api/workspace/location-request",
+    auth,
+    owner,
+    registered,
+    approved,
+    async (req, res) => {
+      const parsed = locationSchema.safeParse(req.body);
+      if (!parsed.success)
+        throw fail(
+          400,
+          "Choose the storefront on the map and enter its address.",
+        );
+      const locationRequest = {
+        ...parsed.data,
+        requestId: randomUUID(),
+        status: "pending",
+        requestedBy: req.user.id,
+        requestedAt: new Date(),
+        reason: "",
+      };
+      const updated = await Shop.findOneAndUpdate(
+        {
+          _id: req.shop.id,
+          owner: req.user.id,
+          registrationStatus: "approved",
+          "locationRequest.status": { $ne: "pending" },
+        },
+        { $set: { locationRequest }, $inc: { __v: 1 } },
+        { new: true },
+      );
+      if (!updated)
+        throw fail(
+          409,
+          "A location change is already awaiting admin approval. Refresh to view it.",
+        );
+      res.status(201).json(safe(updated));
     },
   );
   app.delete(
@@ -204,6 +249,15 @@ export function installWorkspace(
         throw fail(
           400,
           "Add your permit, registration proof, and identification PDFs, then confirm the details.",
+        );
+      if (
+        !coordinatesSchema.safeParse(
+          req.shop.coordinates?.toObject?.() || req.shop.coordinates,
+        ).success
+      )
+        throw fail(
+          400,
+          "Choose your exact storefront on the map before submitting registration.",
         );
       if (
         parsed.data.expectedVersion !== undefined &&

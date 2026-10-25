@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Shop, User } from "./models.js";
+import { coordinatesSchema } from "./shop-location.js";
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export const safeRegistration = (shop) =>
   shop && {
@@ -40,6 +41,87 @@ export function installAdmin(app, { auth, fileStorage }) {
   app.get("/api/admin/shops/:id", registration, (req, res) =>
     res.json(safeRegistration(req.shop)),
   );
+  app.get("/api/admin/location-requests", async (req, res) => {
+    res.json(
+      (
+        await Shop.find({ "locationRequest.status": "pending" }).sort({
+          "locationRequest.requestedAt": 1,
+        })
+      ).map(safeRegistration),
+    );
+  });
+  app.post(
+    "/api/admin/shops/:id/location-decision",
+    registration,
+    async (req, res) => {
+      const parsed = z
+        .object({
+          requestId: z.string().uuid(),
+          decision: z.enum(["approved", "rejected"]),
+          reason: z.string().trim().max(500).default(""),
+        })
+        .strict()
+        .safeParse(req.body);
+      if (
+        !parsed.success ||
+        (parsed.data.decision === "rejected" && !parsed.data.reason)
+      )
+        throw fail(400, "Provide a reason when rejecting a location change.");
+      const { requestId, decision, reason } = parsed.data;
+      const pending = req.shop.locationRequest;
+      if (
+        !pending ||
+        pending.requestId !== requestId ||
+        pending.status !== "pending"
+      )
+        throw fail(
+          409,
+          "Location request changed. Refresh before reviewing again.",
+        );
+      const reviewedAt = new Date();
+      const updated = await Shop.findOneAndUpdate(
+        {
+          _id: req.shop.id,
+          registrationStatus: "approved",
+          "locationRequest.requestId": requestId,
+          "locationRequest.status": "pending",
+        },
+        {
+          $set: {
+            "locationRequest.status": decision,
+            "locationRequest.reason": reason,
+            "locationRequest.reviewedBy": req.user.id,
+            "locationRequest.reviewedAt": reviewedAt,
+            ...(decision === "approved"
+              ? {
+                  coordinates: pending.coordinates,
+                  locationAddress: pending.address,
+                }
+              : {}),
+          },
+          $inc: { __v: 1 },
+          $push: {
+            locationReviews: {
+              ...pending.toObject(),
+              status: decision,
+              reason,
+              reviewedBy: req.user.id,
+              reviewedAt,
+              previousAddress: req.shop.locationAddress || req.shop.address,
+              previousCoordinates: req.shop.coordinates,
+            },
+          },
+        },
+        { new: true },
+      );
+      if (!updated)
+        throw fail(
+          409,
+          "Location request changed. Refresh before reviewing again.",
+        );
+      res.json(safeRegistration(updated));
+    },
+  );
   app.get(
     "/api/admin/shops/:id/documents/:documentId",
     registration,
@@ -72,6 +154,16 @@ export function installAdmin(app, { auth, fileStorage }) {
     )
       throw fail(400, "Choose a decision and provide a reason for rejection.");
     const { decision, reason, submissionVersion } = parsed.data;
+    if (
+      decision === "approved" &&
+      !coordinatesSchema.safeParse(
+        req.shop.coordinates?.toObject?.() || req.shop.coordinates,
+      ).success
+    )
+      throw fail(
+        400,
+        "A storefront map pin is required before approving registration.",
+      );
     // Missing version belongs to registrations submitted before this feature.
     const versionFilter =
       submissionVersion === 0

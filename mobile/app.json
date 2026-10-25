@@ -29,7 +29,13 @@
       "expo-font",
       "expo-secure-store",
       "expo-router",
-      "expo-image"
+      "expo-image",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow PaPrint to find printing shops near you."
+        }
+      ]
     ],
     "scheme": "paprint"
   }

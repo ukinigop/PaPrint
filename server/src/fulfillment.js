@@ -3,7 +3,7 @@ import { nextStatus } from "./domain.js";
 import { z } from "zod";
 export const publicShop = {
   path: "shop",
-  select: "-documents -email -owner -reviews -rejectionReason",
+  select: "-documents -email -owner -reviews -rejectionReason -locationRequest -locationReviews",
 };
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export async function advanceOrder(shopId, id, status, notifyPickup) {

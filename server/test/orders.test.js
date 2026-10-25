@@ -591,16 +591,20 @@ test("owner registrations stay private and cannot self-approve", async () => {
     ).status,
     400,
   );
-  const draft = await request(app).put("/api/workspace").set(auth(token)).send({
-    name: "Private Test Prints",
-    representative: "Shop Owner",
-    address: "Sample Street, Naga City",
-    contact: "09123456789",
-    email: "shop@example.test",
-    hours: "8 AM–6 PM",
-    monoRate: 2,
-    colorRate: 8,
-  });
+  const draft = await request(app)
+    .put("/api/workspace")
+    .set(auth(token))
+    .send({
+      name: "Private Test Prints",
+      representative: "Shop Owner",
+      address: "Sample Street, Naga City",
+      coordinates: { latitude: 13.62, longitude: 123.18 },
+      contact: "09123456789",
+      email: "shop@example.test",
+      hours: "8 AM–6 PM",
+      monoRate: 2,
+      colorRate: 8,
+    });
   assert.equal(draft.status, 200);
   assert.equal(draft.body.registrationStatus, "draft");
   const shops = (await request(app).get("/api/shops").set(auth(customer))).body;
@@ -941,6 +945,7 @@ test("partner rejection, private document replacement, resubmission and approval
     name: "Pilot Prints",
     representative: "Pilot Owner",
     address: "Pilot Street, Naga City",
+    coordinates: { latitude: 13.62, longitude: 123.18 },
     contact: "09123456789",
     email: "pilot-shop@example.test",
     hours: "8 AM–5 PM",
@@ -1163,6 +1168,16 @@ test("operating controls preserve identity, historical totals, file order and re
     colorRate: 8,
     open: true,
   };
+  for (const coordinates of [
+    { latitude: 91, longitude: 123 },
+    { latitude: 13 },
+    { latitude: 13, longitude: -181 },
+  ])
+    await request(app)
+      .patch("/api/workspace/operations")
+      .set(auth(owner))
+      .send({ ...operations, coordinates })
+      .expect(400);
   await request(app)
     .patch("/api/workspace/operations")
     .set(auth(customer))
@@ -1183,6 +1198,13 @@ test("operating controls preserve identity, historical totals, file order and re
     .set(auth(owner))
     .send(operations)
     .expect(200);
+  const publicPilot = (
+    await request(app).get("/api/shops").set(auth(customer))
+  ).body.find((s) => s._id === pilot.id);
+  assert.deepEqual(publicPilot.coordinates, {
+    latitude: 13.62,
+    longitude: 123.18,
+  });
   const created = (
     await request(app)
       .post("/api/orders")
@@ -1269,6 +1291,51 @@ test("operating controls preserve identity, historical totals, file order and re
   assert.equal((await Shop.findById(pilot.id)).name, "Pilot Prints");
 });
 
+test("public save counts count each account once and change when a shop is unsaved", async () => {
+  const app = createApp({
+    secret: "test-secret-with-at-least-32-characters",
+    uploadDir: folder,
+  });
+  const account = (
+    await request(app)
+      .post("/api/auth/signup")
+      .send({
+        name: "Shop saver",
+        email: `saver-${randomUUID()}@example.test`,
+        password: "ShopSaver123!",
+        accountType: "customer",
+      })
+      .expect(201)
+  ).body;
+  const count = async () =>
+    (await request(app).get("/api/shops").set(auth(customer))).body.find(
+      (s) => s._id === shop._id,
+    );
+  const before = (await count()).savedCount;
+  assert.equal(typeof before, "number");
+  await request(app)
+    .patch("/api/auth/me")
+    .set(auth(account.token))
+    .send({ savedShops: [shop._id, shop._id] })
+    .expect(200);
+  const saved = await count();
+  assert.equal(saved.savedCount, before + 1);
+  for (const field of [
+    "owner",
+    "documents",
+    "email",
+    "reviews",
+    "passwordHash",
+  ])
+    assert.equal(saved[field], undefined);
+  await request(app)
+    .patch("/api/auth/me")
+    .set(auth(account.token))
+    .send({ savedShops: [] })
+    .expect(200);
+  assert.equal((await count()).savedCount, before);
+});
+
 test("operating settings use atomic versions to reject stale and racing saves", async () => {
   const account = (
     await request(app)
@@ -1353,6 +1420,7 @@ test("registration submission refuses details changed after review", async () =>
     name: "Review Prints",
     representative: "Review Owner",
     address: "Sample Street, Naga City",
+    coordinates: { latitude: 13.62, longitude: 123.18 },
     contact: "09123456789",
     email: "review@example.test",
     hours: "8 AM–6 PM",
