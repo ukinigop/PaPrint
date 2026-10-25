@@ -56,7 +56,7 @@ export function shopMapUrl(
   );
 }
 export function savedShopLabel(count = 0) {
-  return `${count} ${count === 1 ? "bookmark" : "bookmarks"}`;
+  return `${count} ${count === 1 ? "Bookmark" : "Bookmarks"}`;
 }
 export function shopHours(hours?: string) {
   return (

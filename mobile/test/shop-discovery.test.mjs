@@ -57,14 +57,14 @@ test("Most Bookmarked uses real totals and formal shop summaries preserve times"
     ).searchParams.get("query"),
     "13,123",
   );
-  assert.equal(savedShopLabel(1), "1 bookmark");
-  assert.equal(savedShopLabel(2), "2 bookmarks");
+  assert.equal(savedShopLabel(1), "1 Bookmark");
+  assert.equal(savedShopLabel(2), "2 Bookmarks");
   assert.equal(shopHours("7am-8pm"), "7:00 AM - 8:00 PM");
   assert.equal(shopHours("7:30 AM – 8:45 PM"), "7:30 AM - 8:45 PM");
   assert.equal(shopHours("Mon–Fri 7 AM–8 PM"), "Mon - Fri 7:00 AM - 8:00 PM");
   assert.equal(shopHours(""), "Hours not set");
   assert.equal(
     shopSummary({ savedCount: 2, queue: { ongoing: 1 }, hours: "7am-8pm" }),
-    "2 bookmarks · 1 Ongoing Order · 7:00 AM - 8:00 PM",
+    "2 Bookmarks · 1 Ongoing Order · 7:00 AM - 8:00 PM",
   );
 });
