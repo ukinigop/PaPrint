@@ -55,12 +55,14 @@ import { StaleSessionError, uploadBatch, placeBooking } from "./customerFlow";
 import { phoneDigits, validPhone } from "./accountValidation";
 import { useQuote } from "./useQuote";
 import { ShopGallery } from "./ShopGallery";
+import { BookmarkButton } from "./BookmarkButton";
 import {
   sortShops,
   distanceKm,
   shopMapUrl,
   savedShopLabel,
   shopSummary,
+  shopHours,
   type Coordinates,
 } from "./shopDiscovery";
 
@@ -234,42 +236,49 @@ function ShopCard({
   distance?: number | null;
 }) {
   return (
-    <MotionCardPressable
-      accessibilityRole="button"
-      accessibilityLabel={"View " + shop.name}
-      onPress={() =>
-        router.push({ pathname: "/shop", params: { id: shop._id } })
-      }
-    >
-      <Card>
-        <ShopGallery compact />
-        <View style={[s.row, { gap: 12 }]}>
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={s.cardTitle}>{shop.name}</Text>
-            <Text style={s.small}>{shop.locationAddress || shop.address}</Text>
+    <View style={{ position: "relative" }}>
+      <MotionCardPressable
+        accessibilityRole="button"
+        accessibilityLabel={"View " + shop.name}
+        onPress={() =>
+          router.push({ pathname: "/shop", params: { id: shop._id } })
+        }
+      >
+        <Card>
+          <ShopGallery compact />
+          <View style={[s.row, { gap: 12 }]}>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={s.cardTitle}>{shop.name}</Text>
+              <Text style={s.small}>
+                {shop.locationAddress || shop.address}
+              </Text>
+            </View>
           </View>
-        </View>
-        <Text style={s.small}>{shopSummary(shop)}</Text>
-        {distance !== undefined && (
-          <Text style={s.small}>
-            {distance === null
-              ? "Distance unavailable · shop pin not set"
-              : `${distance.toFixed(1)} km away · straight-line distance`}
-          </Text>
-        )}
-        {!compact && (
-          <>
-            <Text style={[s.body, { color: colors.muted }]}>
-              B&W from {money(shop.monoRate)} / page · Color from{" "}
-              {money(shop.colorRate)}
+          <Text style={s.small}>{shopSummary(shop)}</Text>
+          {distance !== undefined && (
+            <Text style={s.small}>
+              {distance === null
+                ? "Distance unavailable · shop pin not set"
+                : `${distance.toFixed(1)} km away · straight-line distance`}
             </Text>
-            <Pill tone={shop.open ? "positive" : "neutral"}>
-              {shop.open ? "Open now" : "Closed"}
-            </Pill>
-          </>
-        )}
-      </Card>
-    </MotionCardPressable>
+          )}
+          {!compact && (
+            <>
+              <Text style={[s.body, { color: colors.muted }]}>
+                B&W from {money(shop.monoRate)} / page · Color from{" "}
+                {money(shop.colorRate)}
+              </Text>
+              <Pill tone={shop.open ? "positive" : "neutral"}>
+                {shop.open ? "Open now" : "Closed"}
+              </Pill>
+            </>
+          )}
+        </Card>
+      </MotionCardPressable>
+      <View style={{ position: "absolute", top: 28, right: 28 }}>
+        <BookmarkButton shopId={shop._id} name={shop.name} />
+      </View>
+    </View>
   );
 }
 function OrderCard({ order }: { order: Order }) {
@@ -448,7 +457,7 @@ function Shops() {
       />
       <Text style={s.small}>{result.length} partner shops · Naga City</Text>
       <Segments
-        values={["Recommended", "Most Saved", "Nearby"]}
+        values={["Recommended", "Most Bookmarked", "Nearby"]}
         value={sort}
         onChange={(value) => void chooseSort(value)}
       />
@@ -488,8 +497,7 @@ function Shops() {
   );
 }
 function ShopDetails({ id }: { id: string }) {
-  const app = useApp(),
-    { busy, run } = useAction();
+  const app = useApp();
   const shop = app.shops.find((s) => s._id === id);
   if (!shop)
     return (
@@ -499,7 +507,6 @@ function ShopDetails({ id }: { id: string }) {
         </Text>
       </Frame>
     );
-  const saved = app.user?.savedShops?.includes(id);
   return (
     <Frame
       title="Shop details"
@@ -507,15 +514,20 @@ function ShopDetails({ id }: { id: string }) {
       tab="Shops"
       back="/shops"
     >
-      <Card>
-        <ShopGallery />
-        <Text style={s.cardTitle}>{shop.name}</Text>
-        <Text style={s.small}>{savedShopLabel(shop.savedCount)}</Text>
-        <Pill>{shop.open ? "Open now" : "Closed"}</Pill>
-        <Text style={s.body}>{shop.locationAddress || shop.address}</Text>
-        <Pair label="Hours" value={shop.hours || "Contact shop for hours"} />
-        <Pair label="Contact" value={shop.contact || "Not listed"} />
-      </Card>
+      <View style={{ position: "relative" }}>
+        <Card>
+          <ShopGallery />
+          <Text style={s.cardTitle}>{shop.name}</Text>
+          <Text style={s.small}>{savedShopLabel(shop.savedCount)}</Text>
+          <Pill>{shop.open ? "Open now" : "Closed"}</Pill>
+          <Text style={s.body}>{shop.locationAddress || shop.address}</Text>
+          <Pair label="Hours" value={shopHours(shop.hours)} />
+          <Pair label="Contact" value={shop.contact || "Not listed"} />
+        </Card>
+        <View style={{ position: "absolute", top: 28, right: 28 }}>
+          <BookmarkButton shopId={shop._id} name={shop.name} />
+        </View>
+      </View>
       <Card>
         <Text style={s.cardTitle}>Current print queue</Text>
         <Pair label="Ongoing orders" value={String(shop.queue?.ongoing ?? 0)} />
@@ -546,20 +558,6 @@ function ShopDetails({ id }: { id: string }) {
           pickup arrangements.
         </Text>
       )}
-      <Button
-        title={saved ? "Remove from saved shops" : "Save shop"}
-        secondary
-        loading={busy}
-        onPress={() =>
-          void run(async () =>
-            app.updateProfile({
-              savedShops: saved
-                ? app.user!.savedShops.filter((s) => s !== id)
-                : [...(app.user?.savedShops || []), id],
-            }),
-          )
-        }
-      />
       <Button
         secondary
         title="Where is this shop?"
@@ -1195,7 +1193,7 @@ function Profile() {
           />
         </View>
       )}
-      {section === "Saved shops" && (
+      {section === "Bookmarks" && (
         <View style={{ gap: 16 }}>
           {app.shops
             .filter((s) => user.savedShops?.includes(s._id))
@@ -1204,7 +1202,7 @@ function Profile() {
             ))}
           {!user.savedShops?.length && (
             <Text style={s.muted}>
-              Save a shop from its details page to find it here.
+              Tap the bookmark icon on a shop to find it here.
             </Text>
           )}
         </View>
@@ -1336,7 +1334,7 @@ function Profile() {
       </Card>
       <Card>
         {[
-          "Saved shops",
+          "Bookmarks",
           "Notifications",
           "Payment history",
           "Printing preferences",

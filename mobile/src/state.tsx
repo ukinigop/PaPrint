@@ -49,6 +49,7 @@ function useAppState() {
   const polling = useRef(false);
   const refreshRevision = useRef(0);
   const userRef = useRef(user);
+  const bookmarkQueue = useRef<Promise<void>>(Promise.resolve());
   const seen = useRef(new Set<string>());
   const setUser = useCallback(
     (next: Account | null) => {
@@ -224,6 +225,7 @@ function useAppState() {
   }
   async function updateProfile(data: Partial<Account>) {
     const current = api.captureSession();
+    const previousSaved = userRef.current?.savedShops || [];
     const next = await api.request<Account>("/auth/me", {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -238,11 +240,28 @@ function useAppState() {
               0,
               (shop.savedCount || 0) +
                 Number(next.savedShops.includes(shop._id)) -
-                Number(user?.savedShops.includes(shop._id) || false),
+                Number(previousSaved.includes(shop._id)),
             ),
           })),
         );
     }
+  }
+  function toggleBookmark(shopId: string) {
+    const current = api.captureSession();
+    const next = bookmarkQueue.current
+      .catch(() => {})
+      .then(async () => {
+        if (!current()) throw new StaleSessionError();
+        const saved = userRef.current?.savedShops || [];
+        await updateProfile({
+          savedShops: saved.includes(shopId)
+            ? saved.filter((id) => id !== shopId)
+            : [...saved, shopId],
+        });
+        if (current()) await refresh(true, true);
+      });
+    bookmarkQueue.current = next;
+    return next;
   }
   function completeBooking(order: Order, requestKey: string) {
     setOrders((previous) => [
@@ -343,6 +362,7 @@ function useAppState() {
     },
     signOut,
     updateProfile,
+    toggleBookmark,
     notificationMessage,
     enableNotifications,
   };

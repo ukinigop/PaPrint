@@ -30,7 +30,7 @@ export function sortShops(
   origin?: Coordinates | null,
 ) {
   return [...shops].sort((a, b) => {
-    if (sort === "Most Saved")
+    if (sort === "Most Bookmarked" || sort === "Most Saved")
       return (
         (b.savedCount || 0) - (a.savedCount || 0) ||
         a.name.localeCompare(b.name)
@@ -56,15 +56,21 @@ export function shopMapUrl(
   );
 }
 export function savedShopLabel(count = 0) {
-  return `${count} ${count === 1 ? "save" : "saves"}`;
+  return `${count} ${count === 1 ? "bookmark" : "bookmarks"}`;
+}
+export function shopHours(hours?: string) {
+  return (
+    hours
+      ?.trim()
+      .replace(
+        /\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(am|pm)\b/gi,
+        (_, hour, minute, period) =>
+          `${Number(hour)}:${minute || "00"} ${period.toUpperCase()}`,
+      )
+      .replace(/\s*[–—-]\s*/g, " - ") || "Hours not set"
+  );
 }
 export function shopSummary(shop: Shop) {
   const ongoing = shop.queue?.ongoing ?? 0;
-  const hours =
-    shop.hours
-      ?.trim()
-    .replace(/:00(?=\s*(?:am|pm)\b)/gi, "")
-      .replace(/\s*(am|pm)\b/gi, (value) => value.trim().toLowerCase())
-      .replace(/\s*[–—-]\s*/g, "-") || "Hours not set";
-  return `${savedShopLabel(shop.savedCount)} · ${ongoing} ongoing ${ongoing === 1 ? "order" : "orders"} · ${hours}`;
+  return `${savedShopLabel(shop.savedCount)} · ${ongoing} Ongoing ${ongoing === 1 ? "Order" : "Orders"} · ${shopHours(shop.hours)}`;
 }

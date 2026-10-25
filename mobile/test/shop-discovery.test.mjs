@@ -5,6 +5,8 @@ import {
   sortShops,
   shopMapUrl,
   savedShopLabel,
+  shopSummary,
+  shopHours,
 } from "../src/shopDiscovery.ts";
 test("Nearby uses actual coordinates, leaves missing pins last, and never mutates the list", () => {
   const origin = { latitude: 13.62, longitude: 123.18 };
@@ -28,14 +30,14 @@ test("Nearby uses actual coordinates, leaves missing pins last, and never mutate
     ) < 0.01,
   );
 });
-test("Most Saved uses real totals and map queries safely encode names and addresses", () => {
+test("Most Bookmarked uses real totals and formal shop summaries preserve times", () => {
   assert.deepEqual(
     sortShops(
       [
         { name: "A", savedCount: 2 },
         { name: "B", savedCount: 67 },
       ],
-      "Most Saved",
+      "Most Bookmarked",
     ).map((s) => s.name),
     ["B", "A"],
   );
@@ -55,6 +57,14 @@ test("Most Saved uses real totals and map queries safely encode names and addres
     ).searchParams.get("query"),
     "13,123",
   );
-  assert.equal(savedShopLabel(1), "1 save");
-  assert.equal(savedShopLabel(0), "0 saves");
+  assert.equal(savedShopLabel(1), "1 bookmark");
+  assert.equal(savedShopLabel(2), "2 bookmarks");
+  assert.equal(shopHours("7am-8pm"), "7:00 AM - 8:00 PM");
+  assert.equal(shopHours("7:30 AM – 8:45 PM"), "7:30 AM - 8:45 PM");
+  assert.equal(shopHours("Mon–Fri 7 AM–8 PM"), "Mon - Fri 7:00 AM - 8:00 PM");
+  assert.equal(shopHours(""), "Hours not set");
+  assert.equal(
+    shopSummary({ savedCount: 2, queue: { ongoing: 1 }, hours: "7am-8pm" }),
+    "2 bookmarks · 1 Ongoing Order · 7:00 AM - 8:00 PM",
+  );
 });
