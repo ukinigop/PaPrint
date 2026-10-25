@@ -37,7 +37,7 @@ import {
 import { MotionButton as Button, SuccessNotice } from "./motion";
 import * as api from "./api";
 import type { Order, Shop } from "./types";
-import { OwnerPrintPreview } from "./OwnerPrintPreview";
+import { OwnerFilePrint } from "./OwnerFilePrint";
 import { OwnerFileDownload } from "./OwnerFileDownload";
 import { filePrintRange } from "./printing";
 import {
@@ -115,10 +115,6 @@ export function Workspace({ view, id }: { view: string; id: string }) {
     reason: string;
   } | null>(null);
   const order = app.ownerOrders.find((o) => o._id === id);
-  const [printSelection, setPrintSelection] = useState<{
-    orderId: string;
-    fileId: string;
-  } | null>(null);
   const registering =
     view === "Business registration" ||
     (view === "Overview" &&
@@ -680,6 +676,13 @@ export function Workspace({ view, id }: { view: string; id: string }) {
               >
                 <Card style={fieldColumn}>
                   <Text style={s.cardTitle}>Print specifications</Text>
+                  {order.status === "Printing" && (
+                    <Text style={s.small}>
+                      Print file opens your printer settings. Match the booked
+                      paper, copies, color and sides. Mark as Done after
+                      printing.
+                    </Text>
+                  )}
                   {Platform.OS === "web" &&
                     order.status === "Queued" &&
                     shop?.registrationStatus === "approved" && (
@@ -703,33 +706,17 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                           f.upload,
                           order.settings.pageRange,
                         ) ? (
-                          <>
-                            <Button
-                              title="Print file"
-                              disabled={busy}
-                              onPress={() =>
-                                setPrintSelection({
-                                  orderId: order._id,
-                                  fileId: f.upload,
-                                })
-                              }
-                            />
-                            {printSelection?.orderId === order._id &&
-                              printSelection.fileId === f.upload && (
-                                <OwnerPrintPreview
-                                  key={order._id + ":" + f.upload}
-                                  order={order}
-                                  fileId={f.upload}
-                                  name={f.name}
-                                  pages={filePrintRange(
-                                    order.files,
-                                    f.upload,
-                                    order.settings.pageRange,
-                                  )!}
-                                  onClose={() => setPrintSelection(null)}
-                                />
-                              )}
-                          </>
+                          <OwnerFilePrint
+                            orderId={order._id}
+                            fileId={f.upload}
+                            name={f.name}
+                            disabled={busy}
+                            pages={filePrintRange(
+                              order.files,
+                              f.upload,
+                              order.settings.pageRange,
+                            )!}
+                          />
                         ) : (
                           <Text style={s.small}>
                             No pages from this file are selected in the booked
