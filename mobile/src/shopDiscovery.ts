@@ -56,7 +56,15 @@ export function shopMapUrl(
   );
 }
 export function savedShopLabel(count = 0) {
-  return count === 1
-    ? "1 person has saved this shop"
-    : `${count} people have saved this shop`;
+  return `${count} ${count === 1 ? "save" : "saves"}`;
+}
+export function shopSummary(shop: Shop) {
+  const ongoing = shop.queue?.ongoing ?? 0;
+  const hours =
+    shop.hours
+      ?.trim()
+    .replace(/:00(?=\s*(?:am|pm)\b)/gi, "")
+      .replace(/\s*(am|pm)\b/gi, (value) => value.trim().toLowerCase())
+      .replace(/\s*[–—-]\s*/g, "-") || "Hours not set";
+  return `${savedShopLabel(shop.savedCount)} · ${ongoing} ongoing ${ongoing === 1 ? "order" : "orders"} · ${hours}`;
 }

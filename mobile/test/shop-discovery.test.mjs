@@ -55,6 +55,6 @@ test("Most Saved uses real totals and map queries safely encode names and addres
     ).searchParams.get("query"),
     "13,123",
   );
-  assert.equal(savedShopLabel(1), "1 person has saved this shop");
-  assert.equal(savedShopLabel(0), "0 people have saved this shop");
+  assert.equal(savedShopLabel(1), "1 save");
+  assert.equal(savedShopLabel(0), "0 saves");
 });

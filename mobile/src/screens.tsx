@@ -60,6 +60,7 @@ import {
   distanceKm,
   shopMapUrl,
   savedShopLabel,
+  shopSummary,
   type Coordinates,
 } from "./shopDiscovery";
 
@@ -248,10 +249,7 @@ function ShopCard({
             <Text style={s.small}>{shop.locationAddress || shop.address}</Text>
           </View>
         </View>
-        <Text style={s.small}>{savedShopLabel(shop.savedCount)}</Text>
-        <Text style={s.small}>
-          {shop.queue?.ongoing ?? 0} ongoing orders
-        </Text>
+        <Text style={s.small}>{shopSummary(shop)}</Text>
         {distance !== undefined && (
           <Text style={s.small}>
             {distance === null
