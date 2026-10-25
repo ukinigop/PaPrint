@@ -113,7 +113,7 @@ function Frame({
               </LinkText>
             )}
             <View style={s.between}>
-              <Brand width={106} />
+              <Brand width={40} />
               <Text style={{ fontSize: 11, color: colors.primary }}>NAGA</Text>
             </View>
             <Text style={[s.heading, { marginTop: 0, letterSpacing: 0 }]}>

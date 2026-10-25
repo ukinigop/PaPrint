@@ -122,7 +122,7 @@ export function Admin({ id, status }: { id: string; status?: string }) {
             alignSelf: "center",
           }}
         >
-          <Brand width={140} />
+          <Brand width={44} />
           <Text style={s.heading}>Partner approvals</Text>
           <Text style={s.body}>
             Review Naga partner registrations and their documents.

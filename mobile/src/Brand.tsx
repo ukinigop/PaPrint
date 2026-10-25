@@ -10,8 +10,8 @@ const artwork = {
 const ratios = { full: 136 / 385, icon: 659 / 640, reversed: 1 };
 
 export function Brand({
-  variant = "full",
-  width = 150,
+  variant = "icon",
+  width = 40,
 }: {
   variant?: keyof typeof artwork;
   width?: number;

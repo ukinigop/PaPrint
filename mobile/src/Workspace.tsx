@@ -261,7 +261,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
         {wide ? (
           <View style={{ width: 232, padding: 28, gap: 28 }}>
             <View style={s.row}>
-              <Brand width={168} />
+              <Brand width={44} />
             </View>
             <Text style={s.small}>SHOP WORKSPACE</Text>
             {views.map((v) => (
@@ -294,7 +294,7 @@ export function Workspace({ view, id }: { view: string; id: string }) {
           <View style={{ padding: 20, gap: 12 }}>
             <View style={s.between}>
               <View style={s.row}>
-                <Brand width={112} />
+                <Brand width={40} />
               </View>
               <LinkText onPress={() => router.push("/home")}>
                 Customer app

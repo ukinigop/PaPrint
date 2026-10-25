@@ -11,7 +11,7 @@ import { router } from "expo-router";
 import { Text } from "./ui";
 import { MotionButton, useQuietMotion } from "./motion";
 import Animated from "react-native-reanimated";
-import { colors, depth } from "./theme";
+import { colors } from "./theme";
 import { s } from "./styles";
 import { Art, Card, Field, LinkText, Segments } from "./design";
 import { useApp } from "./state";
@@ -119,7 +119,7 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
         >
           <View style={{ gap: 4 }}>
             <View style={[s.row, { marginBottom: 8 }]}>
-              <Brand width={154} />
+              <Brand width={40} />
               <Text style={{ color: colors.primary, fontSize: 11 }}>NAGA</Text>
             </View>
             <Text style={s.heading}>
@@ -373,19 +373,7 @@ export function AccountLoading() {
         { justifyContent: "center", alignItems: "center", gap: 20 },
       ]}
     >
-      <View
-        style={{
-          ...depth.raised,
-          width: 112,
-          height: 112,
-          borderRadius: 28,
-          backgroundColor: colors.surface,
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <Brand variant="reversed" width={96} />
-      </View>
+      <Brand variant="full" width={240} />
       <Text style={[s.body, { color: colors.muted }]}>
         Local printing, made simple.
       </Text>
