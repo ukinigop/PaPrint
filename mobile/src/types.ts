@@ -13,6 +13,24 @@ export type Shop = {
   __v?: number;
   name: string;
   address: string;
+  coordinates?: { latitude: number; longitude: number } | null;
+  savedCount?: number;
+  queue?: {
+    preparing: number;
+    printing: number;
+    ready: number;
+    ongoing: number;
+  };
+  locationAddress?: string;
+  locationRequest?: {
+    requestId: string;
+    address: string;
+    coordinates: { latitude: number; longitude: number };
+    status: "pending" | "approved" | "rejected";
+    requestedAt: string;
+    reviewedAt?: string;
+    reason?: string;
+  };
   distance: string;
   estimate: string;
   rating: number;
