@@ -250,9 +250,7 @@ function ShopCard({
         </View>
         <Text style={s.small}>{savedShopLabel(shop.savedCount)}</Text>
         <Text style={s.small}>
-          {shop.queue?.ongoing ?? 0} ongoing orders ·{" "}
-          {shop.queue?.preparing ?? 0} preparing · {shop.queue?.printing ?? 0}{" "}
-          printing
+          {shop.queue?.ongoing ?? 0} ongoing orders
         </Text>
         {distance !== undefined && (
           <Text style={s.small}>
@@ -523,9 +521,6 @@ function ShopDetails({ id }: { id: string }) {
       <Card>
         <Text style={s.cardTitle}>Current print queue</Text>
         <Pair label="Ongoing orders" value={String(shop.queue?.ongoing ?? 0)} />
-        <Pair label="Preparing" value={String(shop.queue?.preparing ?? 0)} />
-        <Pair label="Printing" value={String(shop.queue?.printing ?? 0)} />
-        <Pair label="Ready for pickup" value={String(shop.queue?.ready ?? 0)} />
         <Text style={s.small}>
           Updates as the shop progresses orders. Order counts aren’t a wait-time
           estimate; document sizes and printing settings vary.
