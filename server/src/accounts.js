@@ -9,6 +9,9 @@ const scrypt = promisify(deriveKey);
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const email = z.string().trim().toLowerCase().email().max(254);
 const password = z.string().min(10).max(128);
+const phone = z
+  .string()
+  .regex(/^[0-9]{11}$/, "Enter an 11-digit mobile number.");
 const name = z.string().trim().min(1).max(80);
 const profile = (user) => ({
   id: user.id,
@@ -64,14 +67,17 @@ export function installAccounts(app, { secret, auth, customer }) {
         email,
         password,
         name,
-        phone: z.string().trim().max(20).default(""),
+        // Omitted phone remains compatible with older API clients; supplied values are strict.
+        phone: phone.optional(),
         accountType: z.enum(["customer", "owner"]).default("customer"),
       })
       .safeParse(req.body);
     if (!parsed.success)
       throw fail(
         400,
-        "Enter your name, a valid email, and a password of 10–128 characters.",
+        parsed.error.issues.some((issue) => issue.path[0] === "phone")
+          ? "Enter an 11-digit mobile number."
+          : "Enter your name, a valid email, and a password of 10–128 characters.",
       );
     await User.init();
     const data = parsed.data;
@@ -80,7 +86,7 @@ export function installAccounts(app, { secret, auth, customer }) {
       user = await User.create({
         email: data.email,
         name: data.name,
-        phone: data.phone,
+        phone: data.phone || "",
         accountType: data.accountType,
         passwordHash: await passwordHash(data.password),
       });
@@ -120,7 +126,7 @@ export function installAccounts(app, { secret, auth, customer }) {
         name: name.optional(),
         defaultPaper: z.enum(["A4", "Letter", "Legal"]).optional(),
         reducedMotion: z.boolean().optional(),
-        phone: z.string().trim().max(20).optional(),
+        phone: phone.optional(),
         savedShops: z
           .array(z.string().regex(/^[a-f\d]{24}$/i))
           .max(100)
@@ -128,6 +134,11 @@ export function installAccounts(app, { secret, auth, customer }) {
       })
       .strict()
       .safeParse(req.body);
+    if (
+      !parsed.success &&
+      parsed.error.issues.some((issue) => issue.path[0] === "phone")
+    )
+      throw fail(400, "Enter an 11-digit mobile number.");
     if (!parsed.success || !Object.keys(parsed.data).length)
       throw fail(400, "Check your profile settings and try again.");
     const user = await User.findByIdAndUpdate(

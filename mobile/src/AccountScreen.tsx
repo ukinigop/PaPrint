@@ -1,4 +1,3 @@
-import { Brand } from "./Brand";
 import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -18,15 +17,23 @@ import { Art, Card, Field, LinkText, Segments } from "./design";
 import { useApp } from "./state";
 import * as api from "./api";
 import type { Account } from "./types";
+import { Brand } from "./Brand";
+import {
+  passwordRequirements,
+  phoneDigits,
+  signupValidation,
+} from "./accountValidation";
 
 export function AccountScreen({ signup = false }: { signup?: boolean }) {
   const { setUser, error: initialError } = useApp();
   const [name, setName] = useState(""),
     [email, setEmail] = useState(""),
     [phone, setPhone] = useState(""),
-    [password, setPassword] = useState("");
+    [password, setPassword] = useState(""),
+    [confirmation, setConfirmation] = useState("");
   const [role, setRole] = useState<"Customer" | "Shop owner">("Customer");
   const [show, setShow] = useState(false),
+    [showConfirmation, setShowConfirmation] = useState(false),
     [agree, setAgree] = useState(false),
     [privacy, setPrivacy] = useState(false);
   const [busy, setBusy] = useState(false),
@@ -44,9 +51,12 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
       setError("Please fill in all fields.");
       return;
     }
-    if (signup && password.length < 10) {
-      setError("Use at least 10 characters for your password.");
-      return;
+    if (signup) {
+      const message = signupValidation(phone, password, confirmation);
+      if (message) {
+        setError(message);
+        return;
+      }
     }
     if (signup && !agree) {
       setError("Please read and acknowledge the preview data notice.");
@@ -79,6 +89,7 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
       if (!current()) return;
       setUser(user);
       setPassword("");
+      setConfirmation("");
       router.replace(
         user.accountType === "admin"
           ? "/admin"
@@ -120,27 +131,12 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
                 : "Sign in to get your next print started."}
             </Text>
           </View>
-          {!signup && (
-            <Card>
-              <Art name="print" size={40} />
-              <Text style={s.cardTitle}>Your files. Your local shop.</Text>
-              <Text style={[s.body, { color: colors.muted }]}>
-                Print with a partner shop in Naga.
-              </Text>
-            </Card>
-          )}
           {signup && (
             <Segments
               values={["Customer", "Shop owner"] as const}
               value={role}
               onChange={setRole}
             />
-          )}
-          {!signup && (
-            <Text style={s.small}>
-              Log in with the email you registered. Your account opens the right
-              workspace.
-            </Text>
           )}
           {error ? (
             <Text accessibilityRole="alert" style={s.error}>
@@ -152,7 +148,10 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
               label="Full name"
               placeholder="Juan Dela Cruz"
               value={name}
-              onChangeText={setName}
+              onChangeText={(value) => {
+                setName(value);
+                setError("");
+              }}
               autoComplete="name"
               maxLength={80}
               editable={!busy}
@@ -162,7 +161,10 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
             label="Email address"
             placeholder="you@example.com"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(value) => {
+              setEmail(value);
+              setError("");
+            }}
             autoCapitalize="none"
             keyboardType="email-address"
             autoComplete="email"
@@ -172,12 +174,15 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
           {signup && (
             <Field
               label="Mobile number"
-              placeholder="09XX XXX XXXX"
+              placeholder="09123456789"
               value={phone}
-              onChangeText={setPhone}
+              onChangeText={(value) => {
+                setPhone(phoneDigits(value));
+                setError("");
+              }}
               keyboardType="phone-pad"
               autoComplete="tel"
-              maxLength={20}
+              maxLength={11}
               editable={!busy}
             />
           )}
@@ -188,7 +193,10 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
                 signup ? "At least 10 characters" : "Enter your password"
               }
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(value) => {
+                setPassword(value);
+                setError("");
+              }}
               secureTextEntry={!show}
               autoCapitalize="none"
               autoCorrect={false}
@@ -201,6 +209,79 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
               {show ? "Hide password" : "Show password"}
             </LinkText>
           </View>
+          {signup && (
+            <>
+              <View style={{ gap: 8 }}>
+                <Text style={s.small}>Password requirements</Text>
+                {passwordRequirements(password).map((rule) => (
+                  <View
+                    key={rule.label}
+                    accessible
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={rule.label}
+                    accessibilityState={{ checked: rule.met, disabled: true }}
+                    aria-checked={rule.met}
+                    style={[s.row, { gap: 8 }]}
+                  >
+                    <Text
+                      accessible={false}
+                      style={{
+                        color: rule.met ? colors.success : colors.muted,
+                      }}
+                    >
+                      {rule.met ? "☑" : "☐"}
+                    </Text>
+                    <Text
+                      style={[s.small, rule.met && { color: colors.success }]}
+                    >
+                      {rule.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <View style={{ gap: 4 }}>
+                <Field
+                  label="Confirm password"
+                  placeholder="Re-enter your password"
+                  value={confirmation}
+                  onChangeText={(value) => {
+                    setConfirmation(value);
+                    setError("");
+                  }}
+                  secureTextEntry={!showConfirmation}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="new-password"
+                  maxLength={128}
+                  editable={!busy}
+                  onSubmitEditing={() => void submit()}
+                />
+                <LinkText
+                  onPress={() => setShowConfirmation(!showConfirmation)}
+                >
+                  {showConfirmation
+                    ? "Hide confirm password"
+                    : "Show confirm password"}
+                </LinkText>
+                {confirmation ? (
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    style={{
+                      color:
+                        password === confirmation
+                          ? colors.success
+                          : colors.error,
+                      fontSize: 12,
+                    }}
+                  >
+                    {password === confirmation
+                      ? "Passwords match."
+                      : "Passwords do not match."}
+                  </Text>
+                ) : null}
+              </View>
+            </>
+          )}
           {signup && (
             <View>
               <Pressable
@@ -305,9 +386,6 @@ export function AccountLoading() {
       >
         <Brand variant="reversed" width={96} />
       </View>
-      <Text style={{ fontSize: 36, color: colors.primary, fontWeight: "700" }}>
-        PaPrint
-      </Text>
       <Text style={[s.body, { color: colors.muted }]}>
         Local printing, made simple.
       </Text>

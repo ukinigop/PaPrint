@@ -52,6 +52,7 @@ import * as api from "./api";
 import type { Order, Shop } from "./types";
 import { Workspace } from "./Workspace";
 import { StaleSessionError, uploadBatch, placeBooking } from "./customerFlow";
+import { phoneDigits, validPhone } from "./accountValidation";
 import { useQuote } from "./useQuote";
 
 type Tab = "Home" | "Shops" | "Orders" | "Profile";
@@ -1054,14 +1055,17 @@ function Profile() {
           <Field
             label="Mobile number"
             value={phone}
-            onChangeText={setPhone}
+            onChangeText={(value) => setPhone(phoneDigits(value))}
             keyboardType="phone-pad"
+            maxLength={11}
           />
           <Button
             title="Save details"
             loading={savingDetails}
             onPress={() =>
               void saveDetails(async () => {
+                if (!validPhone(phone))
+                  throw new Error("Enter an 11-digit mobile number.");
                 await app.updateProfile({ name, phone });
                 setSaved("Details saved.");
               })

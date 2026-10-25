@@ -441,6 +441,61 @@ test("email accounts hash passwords, validate credentials, and persist preferenc
   assert.equal(restored.body.passwordHash, undefined);
 });
 
+test("supplied account phone numbers require exactly eleven digits on signup and profile edits", async () => {
+  const phoneApp = createApp({
+    secret: "phone-test-secret-with-at-least-32-characters",
+    uploadDir: folder,
+  });
+  const account = {
+    name: "Phone Test",
+    email: `phone-${randomUUID()}@example.test`,
+    password: "Phone-test-password-123",
+  };
+  for (const phone of [
+    "",
+    "09123",
+    "091234567890",
+    "0912345678x",
+    "+639123456789",
+    "09123 456789",
+    9123456789,
+  ]) {
+    const rejected = await request(phoneApp)
+      .post("/api/auth/signup")
+      .send({ ...account, phone })
+      .expect(400);
+    assert.match(rejected.body.message, /11-digit/);
+  }
+  assert.equal(await User.countDocuments({ email: account.email }), 0);
+  const created = await request(phoneApp)
+    .post("/api/auth/signup")
+    .send({ ...account, phone: "09123456789" })
+    .expect(201);
+  assert.equal(created.body.user.phone, "09123456789");
+  for (const phone of ["", "123", "091234567890", "abcdefghijk"]) {
+    await request(phoneApp)
+      .patch("/api/auth/me")
+      .set(auth(created.body.token))
+      .send({ phone })
+      .expect(400);
+  }
+  const unchanged = await request(phoneApp)
+    .get("/api/auth/me")
+    .set(auth(created.body.token))
+    .expect(200);
+  assert.equal(unchanged.body.phone, "09123456789");
+  const updated = await request(phoneApp)
+    .patch("/api/auth/me")
+    .set(auth(created.body.token))
+    .send({ phone: "09987654321" })
+    .expect(200);
+  assert.equal(updated.body.phone, "09987654321");
+  await request(phoneApp)
+    .post("/api/auth/login")
+    .send({ email: account.email, password: account.password })
+    .expect(200);
+});
+
 test("account orders survive new logins, stay private, and revoked tokens cannot renew as guests", async () => {
   const email = `owner-${randomUUID()}@example.test`;
   const password = "Another-test-password-123";
