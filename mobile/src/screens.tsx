@@ -55,10 +55,10 @@ import { StaleSessionError, uploadBatch, placeBooking } from "./customerFlow";
 import { phoneDigits, validPhone } from "./accountValidation";
 import { useQuote } from "./useQuote";
 
-type Tab = "Home" | "Shops" | "Orders" | "Profile";
-const tabs = ["Home", "Shops", "Orders", "Profile"] as const;
+type Tab = "Print" | "Shops" | "Orders" | "Profile";
+const tabs = ["Print", "Shops", "Orders", "Profile"] as const;
 const icons = {
-  Home: ["home", "homeActive"],
+  Print: ["home", "homeActive"],
   Shops: ["shops", "shopsActive"],
   Orders: ["orders", "ordersActive"],
   Profile: ["profile", "profileActive"],
@@ -167,7 +167,7 @@ function Frame({
                 accessibilityLabel={t}
                 accessibilityState={{ selected: t === tab }}
                 onPress={() =>
-                  router.replace(("/" + t.toLowerCase()) as "/home")
+                  router.replace((t === "Print" ? "/home" : "/" + t.toLowerCase()) as "/home")
                 }
                 style={[
                   s.navItem,
@@ -293,11 +293,11 @@ function Home() {
   const active = orders.find(isActiveOrder);
   return (
     <Frame
-      title="Home"
+      title="Print"
       subtitle={
         "Hello, " + user?.name.split(" ")[0] + ". What are we printing?"
       }
-      tab="Home"
+      tab="Print"
     >
       <Card tint>
         <Text style={[s.heading, { marginTop: 0 }]}>
@@ -410,7 +410,7 @@ function ShopDetails({ id }: { id: string }) {
         <Pair label="Contact" value={shop.contact || "Not listed"} />
       </Card>
       <Card>
-        <Text style={s.cardTitle}>Printing services</Text>
+        <Text style={s.cardTitle}>Services</Text>
         <Pair label="Black & white" value={money(shop.monoRate) + " / page"} />
         <Pair label="Full color" value={money(shop.colorRate) + " / page"} />
         <Pair label="Paper sizes" value="A4 · Letter · Legal" />
