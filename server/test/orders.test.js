@@ -188,6 +188,8 @@ test("quote is authoritative and rejects another customer’s files and closed s
     .send({ ...payload(), amount: 1 });
   assert.equal(quote.status, 200);
   assert.equal(quote.body.amount, 2 * 3 * shop.colorRate * 1.25);
+  assert.equal(quote.body.rate, shop.colorRate);
+  assert.equal(quote.body.paperMultiplier, 1.25);
   assert.equal(
     (await request(app).post("/api/quote").set(auth(other)).send(payload()))
       .status,

@@ -9,6 +9,7 @@ import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
 import { Admin } from "./Admin";
 import { Brand } from "./Brand";
 import { UploadFilePreview } from "./UploadFilePreview";
+import { pricingSummary } from "./pricingSummary";
 import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -714,6 +715,14 @@ function Upload() {
 function Options() {
   const app = useApp(),
     { busy, run } = useAction();
+  const [rangeMode, setRangeMode] = useState<"All" | "Custom">(() =>
+    app.draft.settings.pageRange?.trim() ? "Custom" : "All",
+  );
+  const [customRange, setCustomRange] = useState(
+    app.draft.settings.pageRange || "",
+  );
+  const customEmpty =
+    rangeMode === "Custom" && !app.draft.settings.pageRange?.trim();
   const quoteBody = JSON.stringify({
     shopId: app.draft.shop?._id,
     fileIds: app.draft.files.map((f) => f._id),
@@ -722,13 +731,17 @@ function Options() {
   });
   const quote = useQuote(
     quoteBody,
-    !!app.draft.shop && !!app.draft.files.length,
+    !!app.draft.shop && !!app.draft.files.length && !customEmpty,
   );
   const rangeError =
     quote.status === "error" && /page|range/i.test(quote.error || "");
   if (!app.draft.shop || !app.draft.files.length)
     return <Redirect href="/upload" />;
   const { settings } = app.draft;
+  const breakdown =
+    quote.status === "success" && quote.quote
+      ? pricingSummary(quote.quote, settings)
+      : null;
   const change = (data: Partial<typeof settings>) => {
     app.setDraft((d) => ({ ...d, settings: { ...d.settings, ...data } }));
   };
@@ -742,13 +755,40 @@ function Options() {
       back="/upload"
     >
       <FileCards />
-      {field("Page range", {
-        value: settings.pageRange,
-        placeholder: "All pages (or 1-3, 5)",
-        onChangeText: (pageRange) => change({ pageRange }),
-        maxLength: 100,
-      })}
-      <Text style={s.small}>Number pages across files in upload order.</Text>
+      <Text style={s.small}>Page range</Text>
+      <Segments
+        values={["All", "Custom"] as const}
+        value={rangeMode}
+        onChange={(mode) => {
+          setRangeMode(mode);
+          change({ pageRange: mode === "All" ? "" : customRange });
+        }}
+      />
+      {rangeMode === "Custom" ? (
+        <>
+          {field("Pages to print", {
+            value: settings.pageRange,
+            placeholder: "e.g. 1-3, 4-10",
+            onChangeText: (pageRange) => {
+              setCustomRange(pageRange);
+              change({ pageRange });
+            },
+            maxLength: 100,
+          })}
+          <Text style={s.small}>
+            Enter pages or ranges separated by commas. Number pages across files
+            in upload order
+            {` (1–${app.draft.files.reduce((sum, file) => sum + file.pages, 0)}).`}
+          </Text>
+          {customEmpty && (
+            <Text style={s.small}>
+              Enter a page range to see your estimate.
+            </Text>
+          )}
+        </>
+      ) : (
+        <Text style={s.small}>Print every page in your uploaded files.</Text>
+      )}
       {rangeError && (
         <Text accessibilityRole="alert" style={{ color: colors.error }}>
           {quote.error}
@@ -800,14 +840,24 @@ function Options() {
         multiline
         maxLength={500}
       />
+      {breakdown && (
+        <View style={{ gap: 6 }}>
+          <Text style={[s.body, { color: colors.primary }]}>
+            {breakdown.title}
+          </Text>
+          <Text style={s.small}>{breakdown.equation}</Text>
+        </View>
+      )}
       <Pair
         label="Estimated total"
         value={
           quote.status === "success" && quote.quote
             ? money(quote.quote.amount)
-            : quote.status === "loading"
-              ? "Calculating…"
-              : "Estimate unavailable"
+            : customEmpty
+              ? "Choose pages"
+              : quote.status === "loading"
+                ? "Calculating…"
+                : "Estimate unavailable"
         }
       />
       {quote.status === "error" && (

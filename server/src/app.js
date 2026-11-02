@@ -306,8 +306,8 @@ export function createApp({
     return { data, shop, files, ...price(shop, files, data.settings) };
   }
   app.post("/api/quote", auth, customer, async (req, res) => {
-    const { pages, amount } = await prepare(req);
-    res.json({ pages, amount });
+    const { pages, amount, rate, paperMultiplier } = await prepare(req);
+    res.json({ pages, amount, rate, paperMultiplier });
   });
   app.post("/api/orders", auth, customer, async (req, res) => {
     const valid = bookingSchema.safeParse(req.body);

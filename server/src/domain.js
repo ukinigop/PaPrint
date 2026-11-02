@@ -42,6 +42,8 @@ export function price(shop, files, settings) {
   const paperMultiplier = settings.paper === "Legal" ? 1.25 : 1;
   return {
     pages,
+    rate,
+    paperMultiplier,
     amount:
       Math.round(pages * settings.copies * rate * paperMultiplier * 100) / 100,
   };

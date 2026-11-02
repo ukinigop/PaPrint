@@ -74,7 +74,12 @@ export function createSessionScope() {
   };
 }
 
-export type Quote = { amount: number; pages: number };
+export type Quote = {
+  amount: number;
+  pages: number;
+  rate?: number;
+  paperMultiplier?: number;
+};
 export type QuoteState = {
   key: string;
   status: "idle" | "loading" | "success" | "error";
