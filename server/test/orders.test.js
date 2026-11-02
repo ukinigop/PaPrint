@@ -150,7 +150,13 @@ test("PDF preview renderer serves local assets with no document credentials and 
   );
   assert.match(viewer.headers["content-security-policy"], /script-src 'self';/);
   assert.ok(!viewer.text.includes("https://"));
-  for (const name of ["client.js", "pdf.mjs", "pdf.worker.mjs"])
+  for (const name of [
+    "client.js",
+    "pdf.mjs",
+    "pdf.worker.mjs",
+    "body.ttf",
+    "title.ttf",
+  ])
     await request(renderer).get(`/api/pdf-preview/assets/${name}`).expect(200);
   await request(renderer)
     .get("/api/pdf-preview/assets/private.pdf")

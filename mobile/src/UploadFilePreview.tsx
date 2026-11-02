@@ -6,7 +6,8 @@ import { StaleSessionError } from "./customerFlow";
 import { MotionButton as Button } from "./motion";
 import { Text } from "./ui";
 import { s } from "./styles";
-import { colors } from "./theme";
+import { colors, depth } from "./theme";
+import { Art } from "./design";
 import { PdfCanvas } from "./PdfCanvas";
 
 export function UploadFilePreview({
@@ -71,16 +72,32 @@ export function UploadFilePreview({
         animationType="none"
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }}>
-          <View style={{ padding: 20, gap: 12, flex: 1 }}>
-            <View style={s.between}>
-              <Text style={[s.cardTitle, { flex: 1 }]} numberOfLines={2}>
-                {name}
-              </Text>
-              <Button
-                title="Close preview"
-                secondary
+          <View style={[s.app, { padding: 16, gap: 12 }]}>
+            <View style={s.row}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close preview"
                 onPress={() => setOpen(false)}
-              />
+                style={{
+                  ...depth.small,
+                  backgroundColor: colors.surface,
+                  borderRadius: 16,
+                  minWidth: 44,
+                  minHeight: 44,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ fontSize: 30, color: colors.primary }}>‹</Text>
+              </Pressable>
+              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                <Text style={[s.small, { color: colors.primary }]}>
+                  Document preview
+                </Text>
+                <Text style={s.cardTitle} numberOfLines={2}>
+                  {name}
+                </Text>
+              </View>
             </View>
             {loading && <Text style={s.body}>Loading PDF…</Text>}
             {error ? (
@@ -97,10 +114,42 @@ export function UploadFilePreview({
             ) : null}
             {bytes ? (
               <>
-                <Text style={s.small}>
-                  Check the original document here. Print settings are applied
-                  at checkout.
-                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    backgroundColor: colors.mint,
+                    borderRadius: 18,
+                    padding: 12,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 12,
+                      backgroundColor: colors.surface,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Art name="file" size={20} />
+                  </View>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <Text
+                      style={[
+                        s.small,
+                        { color: colors.primary, fontWeight: "600" },
+                      ]}
+                    >
+                      Original document
+                    </Text>
+                    <Text style={s.small}>
+                      Print settings apply at checkout.
+                    </Text>
+                  </View>
+                </View>
                 <PdfCanvas bytes={bytes} name={name} />
               </>
             ) : null}

@@ -7,7 +7,7 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 30,
-      "includeFiles": "{server/src/pdf-preview-client.js,node_modules/pdfjs-dist/{legacy/build,cmaps,standard_fonts}/**}"
+      "includeFiles": "{server/src/pdf-preview-client.js,node_modules/pdfjs-dist/{legacy/build,cmaps,standard_fonts}/**,mobile/node_modules/@expo-google-fonts/manrope/{500Medium,700Bold}/*.ttf}"
     }
   },
   "rewrites": [
