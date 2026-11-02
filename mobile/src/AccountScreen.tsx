@@ -118,8 +118,8 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
           ]}
         >
           <View style={{ gap: 4 }}>
-            <View style={[s.row, { marginBottom: 8 }]}>
-              <Brand width={40} />
+            <View style={[s.between, { marginBottom: 8 }]}>
+              <Brand variant="full" width={196} />
               <Text style={{ color: colors.primary, fontSize: 11 }}>NAGA</Text>
             </View>
             <Text style={s.heading}>
