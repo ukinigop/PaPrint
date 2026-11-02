@@ -19,6 +19,7 @@ import {
 } from "./fulfillment.js";
 import { bookingSchema, price } from "./domain.js";
 import { installMaps } from "./maps.js";
+import { installPdfPreview } from "./pdf-preview.js";
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export function createApp({
@@ -50,6 +51,7 @@ export function createApp({
   );
   app.use("/api", rateLimit({ windowMs: 60_000, limit: 180 }));
   installMaps(app, { searchPlaces });
+  installPdfPreview(app);
   const sign = (data) => jwt.sign(data, secret, { expiresIn: "30d" });
   const auth = async (req, res, next) => {
     try {
@@ -359,6 +361,20 @@ export function createApp({
         );
       throw error;
     }
+  });
+  app.get("/api/uploads/:id/preview", auth, customer, async (req, res) => {
+    const file = await Upload.findOne({
+      _id: validId(req.params.id),
+      owner: req.user.id,
+    });
+    if (!file) throw fail(404, "File not found.");
+    res.set("Content-Type", "application/pdf");
+    res.set("Cache-Control", "private, no-store");
+    res.set(
+      "Content-Disposition",
+      `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    );
+    res.send(await fileStorage.read(file.path));
   });
   app.get("/api/orders", auth, async (req, res) => {
     const filter =

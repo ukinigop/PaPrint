@@ -8,6 +8,7 @@ import {
 import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
 import { Admin } from "./Admin";
 import { Brand } from "./Brand";
+import { UploadFilePreview } from "./UploadFilePreview";
 import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -218,15 +219,9 @@ function ShopCard({
             </Text>
           )}
           {!compact && (
-            <>
-              <Text style={[s.body, { color: colors.muted }]}>
-                B&W from {money(shop.monoRate)} / page · Color from{" "}
-                {money(shop.colorRate)}
-              </Text>
-              <Pill tone={shop.open ? "positive" : "neutral"}>
-                {shop.open ? "Open now" : "Closed"}
-              </Pill>
-            </>
+            <Pill tone={shop.open ? "positive" : "neutral"}>
+              {shop.open ? "Open now" : "Closed"}
+            </Pill>
           )}
         </Card>
       </MotionCardPressable>
@@ -539,7 +534,7 @@ function FileCards({ busy = false }: { busy?: boolean }) {
         <Card key={f._id}>
           <View style={s.row}>
             <Art name="file" size={28} />
-            <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+            <UploadFilePreview id={f._id} name={f.name}>
               <Text
                 style={s.body}
                 numberOfLines={2}
@@ -552,7 +547,7 @@ function FileCards({ busy = false }: { busy?: boolean }) {
                 {f.pages} pages · {(f.size / 1024 / 1024).toFixed(2)} MB ·
                 Uploaded
               </Text>
-            </View>
+            </UploadFilePreview>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={"Remove " + f.name}

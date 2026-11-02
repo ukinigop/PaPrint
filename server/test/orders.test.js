@@ -118,6 +118,50 @@ test("PDF upload validates bytes and reads actual page count", async () => {
   assert.equal(file.pages, 2);
   assert.equal(file.path, undefined);
 });
+test("uploaded PDF previews are private and available before booking", async () => {
+  const route = `/api/uploads/${file._id}/preview`;
+  await request(app).get(route).expect(401);
+  await request(app).get(route).set(auth(other)).expect(404);
+  await request(app).get(route).set(auth(shopToken)).expect(403);
+  await request(app)
+    .get(`/api/uploads/${new mongoose.Types.ObjectId()}/preview`)
+    .set(auth(customer))
+    .expect(404);
+  const response = await request(app)
+    .get(route)
+    .set(auth(customer))
+    .expect(200);
+  assert.match(response.headers["content-type"], /^application\/pdf/);
+  assert.match(response.headers["content-disposition"], /^inline;/);
+  assert.equal(response.headers["cache-control"], "private, no-store");
+  assert.deepEqual(response.body, pdf);
+  assert.equal(await Order.countDocuments(), 0);
+});
+test("PDF preview renderer serves local assets with no document credentials and keeps framing restricted", async () => {
+  const renderer = createApp({
+    secret: "test-secret-with-at-least-32-characters",
+    uploadDir: folder,
+  });
+  const viewer = await request(renderer).get("/api/pdf-preview").expect(200);
+  assert.match(viewer.text, /<canvas/);
+  assert.match(
+    viewer.headers["content-security-policy"],
+    /frame-ancestors 'self'/,
+  );
+  assert.match(viewer.headers["content-security-policy"], /script-src 'self';/);
+  assert.ok(!viewer.text.includes("https://"));
+  for (const name of ["client.js", "pdf.mjs", "pdf.worker.mjs"])
+    await request(renderer).get(`/api/pdf-preview/assets/${name}`).expect(200);
+  await request(renderer)
+    .get("/api/pdf-preview/assets/private.pdf")
+    .expect(404);
+  await request(renderer)
+    .get("/api/pdf-preview/resources/other/secrets.ttf")
+    .expect(404);
+  await request(renderer)
+    .get("/api/pdf-preview/resources/standard_fonts/LiberationSans-Regular.ttf")
+    .expect(200);
+});
 const payload = () => ({
   shopId: shop._id,
   fileIds: [file._id],

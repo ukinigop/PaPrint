@@ -171,6 +171,35 @@ test("owner print preview uses the authenticated workspace file route and origin
   };
   assert.equal(await api.loadOwnerPrintPdf("order", "file"), pdf);
 });
+
+test("upload previews use customer authentication and discard results after an account switch", async () => {
+  await api.acceptAccount({
+    token: "customer-token",
+    user: { id: "customer" },
+  });
+  const pdf = new Blob(["%PDF-1.7 selected"], { type: "application/pdf" });
+  globalThis.fetch = async (url, options) => {
+    assert.ok(url.endsWith("/api/uploads/selected/preview"));
+    assert.ok(!url.includes("customer-token"));
+    assert.equal(options.headers.Authorization, "Bearer customer-token");
+    return { ok: true, blob: async () => pdf };
+  };
+  assert.equal(await api.loadUploadPreview("selected"), pdf);
+  const pending = deferred(),
+    started = deferred();
+  globalThis.fetch = async () => ({
+    ok: true,
+    blob: () => {
+      started.resolve();
+      return pending.promise;
+    },
+  });
+  const preview = api.loadUploadPreview("selected");
+  await started.promise;
+  await api.acceptAccount({ token: "new", user: { id: "other-customer" } });
+  pending.resolve(pdf);
+  await assert.rejects(preview, StaleSessionError);
+});
 test("a delayed private print PDF cannot enter a different account", async () => {
   await api.acceptAccount({ token: "old", user: { id: "old-owner" } });
   const pending = deferred(),
