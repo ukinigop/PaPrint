@@ -39,6 +39,8 @@ import type { Order, Shop } from "./types";
 import { OwnerFilePrint } from "./OwnerFilePrint";
 import { OwnerFileDownload } from "./OwnerFileDownload";
 import { Brand } from "./Brand";
+import { OwnerPickupEstimate } from "./OwnerPickupEstimate";
+import { canEstimatePickup } from "./pickupEstimate";
 import { ShopLocationPicker } from "./ShopLocationPicker";
 import { OwnerLocation } from "./OwnerLocation";
 import { filePrintRange } from "./printing";
@@ -786,6 +788,22 @@ export function Workspace({ view, id }: { view: string; id: string }) {
                   <Text style={s.cardTitle}>Production status</Text>
                   <Pill>{stage(order.status)}</Pill>
                   {order.notes && <Text style={s.body}>{order.notes}</Text>}
+                  {shop?.registrationStatus === "approved" &&
+                    !isCancelledOrRejected(order) &&
+                    (canEstimatePickup(order) || !!order.estimatedPickupAt) && (
+                      <OwnerPickupEstimate
+                        key={order._id}
+                        order={order}
+                        onSaved={(updated) =>
+                          app.setOwnerOrders((list) =>
+                            list.map((item) =>
+                              item._id === updated._id ? updated : item,
+                            ),
+                          )
+                        }
+                        onRefresh={() => app.refresh(true)}
+                      />
+                    )}
                   {canEndOrder(order) &&
                     shop?.registrationStatus === "approved" &&
                     (rejecting?.id === order._id ? (

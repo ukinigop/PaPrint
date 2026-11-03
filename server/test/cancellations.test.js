@@ -92,6 +92,125 @@ before(async () => {
 beforeEach(() => {
   app = makeApp();
 });
+
+test("pickup estimates are owner-scoped, approved-only, versioned and visible to the customer", async () => {
+  const { order } = await book();
+  const route = `/api/workspace/orders/${order._id}/pickup-estimate`;
+  const at = new Date(Date.now() + 3600000).toISOString();
+  const body = { estimatedPickupAt: at, expectedVersion: 0 };
+  await request(app).patch(route).send(body).expect(401);
+  await request(app)
+    .patch(route)
+    .set(auth(customer.token))
+    .send(body)
+    .expect(403);
+  await request(app).patch(route).set(auth(shopToken)).send(body).expect(403);
+  await request(app)
+    .patch(route)
+    .set(auth(otherOwner.token))
+    .send(body)
+    .expect(404);
+  await Shop.updateOne({ _id: shop.id }, { registrationStatus: "submitted" });
+  await request(app).patch(route).set(auth(owner.token)).send(body).expect(403);
+  await Shop.updateOne(
+    { _id: shop.id },
+    { registrationStatus: "approved", open: false },
+  );
+  const saved = (
+    await request(app)
+      .patch(route)
+      .set(auth(owner.token))
+      .send(body)
+      .expect(200)
+  ).body;
+  assert.equal(saved.estimatedPickupAt, at);
+  assert.equal(saved.pickupEstimateUpdatedBy, owner.user.id);
+  assert.ok(saved.pickupEstimateUpdatedAt);
+  assert.equal(saved.pickupEstimateVersion, 1);
+  assert.equal(saved.status, "Queued");
+  assert.equal(saved.amount, order.amount);
+  assert.deepEqual(saved.files, order.files);
+  const visible = (
+    await request(app).get("/api/orders").set(auth(customer.token)).expect(200)
+  ).body.find((item) => item._id === order._id);
+  assert.equal(visible.estimatedPickupAt, at);
+  await request(app)
+    .patch(route)
+    .set(auth(owner.token))
+    .send({ estimatedPickupAt: null, expectedVersion: 0 })
+    .expect(409);
+  const clear = (
+    await request(app)
+      .patch(route)
+      .set(auth(owner.token))
+      .send({ estimatedPickupAt: null, expectedVersion: 1 })
+      .expect(200)
+  ).body;
+  assert.equal(clear.estimatedPickupAt, undefined);
+  assert.equal(clear.pickupEstimateVersion, 2);
+  await Shop.updateOne({ _id: shop.id }, { open: true });
+});
+
+test("pickup estimates reject invalid input and finished orders, and arbitrate stale saves atomically", async () => {
+  const { order } = await book();
+  const route = `/api/workspace/orders/${order._id}/pickup-estimate`;
+  const at = new Date(Date.now() + 3600000).toISOString();
+  for (const body of [
+    {},
+    { estimatedPickupAt: "bad", expectedVersion: 0 },
+    { estimatedPickupAt: "2026-02-30T09:00:00Z", expectedVersion: 0 },
+    {
+      estimatedPickupAt: new Date(Date.now() - 60000).toISOString(),
+      expectedVersion: 0,
+    },
+    { estimatedPickupAt: at, expectedVersion: -1 },
+    {
+      estimatedPickupAt: at,
+      expectedVersion: 0,
+      pickupEstimateUpdatedBy: otherOwner.user.id,
+    },
+  ])
+    await request(app)
+      .patch(route)
+      .set(auth(owner.token))
+      .send(body)
+      .expect(400);
+  await request(app)
+    .patch("/api/workspace/orders/invalid/pickup-estimate")
+    .set(auth(owner.token))
+    .send({ estimatedPickupAt: at, expectedVersion: 0 })
+    .expect(400);
+  for (const status of [
+    "Ready for pickup",
+    "Collected",
+    "Cancelled",
+    "Rejected",
+  ]) {
+    await Order.updateOne({ _id: order._id }, { status });
+    await request(app)
+      .patch(route)
+      .set(auth(owner.token))
+      .send({ estimatedPickupAt: at, expectedVersion: 0 })
+      .expect(409);
+  }
+  // Old records have no estimate fields and need no migration.
+  await Order.collection.updateOne(
+    { _id: new mongoose.Types.ObjectId(order._id) },
+    { $set: { status: "Printing" }, $unset: { pickupEstimateVersion: 1 } },
+  );
+  const results = await Promise.all(
+    [at, new Date(Date.now() + 7200000).toISOString()].map((time) =>
+      request(app)
+        .patch(route)
+        .set(auth(owner.token))
+        .send({ estimatedPickupAt: time, expectedVersion: 0 }),
+    ),
+  );
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+  const existing = await Order.findById(order._id);
+  assert.equal(existing.pickupEstimateVersion, 1);
+  assert.equal(existing.status, "Printing");
+});
 after(async () => {
   await mongoose.disconnect();
   await mongo?.stop();

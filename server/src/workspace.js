@@ -282,6 +282,69 @@ export function installWorkspace(
     ),
   );
   app.patch(
+    "/api/workspace/orders/:id/pickup-estimate",
+    auth,
+    owner,
+    registered,
+    approved,
+    async (req, res) => {
+      if (!/^[a-f\d]{24}$/i.test(req.params.id))
+        throw fail(400, "Invalid order.");
+      const parsed = z
+        .object({
+          estimatedPickupAt: z.string().datetime({ offset: true }).nullable(),
+          expectedVersion: z.number().int().nonnegative(),
+        })
+        .strict()
+        .safeParse(req.body);
+      if (!parsed.success)
+        throw fail(400, "Choose a valid pickup date and time.");
+      const at =
+        parsed.data.estimatedPickupAt === null
+          ? null
+          : new Date(parsed.data.estimatedPickupAt);
+      if (at && at.getTime() <= Date.now())
+        throw fail(400, "Choose a pickup time in the future.");
+      const existing = await Order.findOne({
+        _id: req.params.id,
+        shop: req.shop.id,
+      }).select("_id");
+      if (!existing) throw fail(404, "Order not found.");
+      const version = parsed.data.expectedVersion;
+      const updated = await Order.findOneAndUpdate(
+        {
+          _id: req.params.id,
+          shop: req.shop.id,
+          status: { $in: ["Queued", "Printing"] },
+          ...(version === 0
+            ? {
+                $or: [
+                  { pickupEstimateVersion: 0 },
+                  { pickupEstimateVersion: { $exists: false } },
+                ],
+              }
+            : { pickupEstimateVersion: version }),
+        },
+        {
+          $set: {
+            ...(at ? { estimatedPickupAt: at } : {}),
+            pickupEstimateUpdatedAt: new Date(),
+            pickupEstimateUpdatedBy: req.user.id,
+          },
+          ...(!at ? { $unset: { estimatedPickupAt: 1 } } : {}),
+          $inc: { pickupEstimateVersion: 1 },
+        },
+        { new: true, runValidators: true },
+      ).populate(publicShop);
+      if (!updated)
+        throw fail(
+          409,
+          "The order or pickup estimate changed. Refresh before editing. Estimates can only be changed while Preparing or Printing.",
+        );
+      res.json(updated);
+    },
+  );
+  app.patch(
     "/api/workspace/orders/:id/status",
     auth,
     owner,

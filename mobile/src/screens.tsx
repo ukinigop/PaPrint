@@ -10,7 +10,8 @@ import { Admin } from "./Admin";
 import { Brand } from "./Brand";
 import { UploadFilePreview } from "./UploadFilePreview";
 import { pricingSummary } from "./pricingSummary";
-import React, { useRef, useState } from "react";
+import { canEstimatePickup, pickupTimeLabel } from "./pickupEstimate";
+import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Linking,
@@ -270,6 +271,11 @@ function OrderCard({ order }: { order: Order }) {
               ? money(order.amount) + " · Paid"
               : "Pay on pickup · " + money(order.amount) + " due"}
         </Text>
+        {canEstimatePickup(order) && order.estimatedPickupAt && (
+          <Text style={[s.small, { color: colors.primary }]}>
+            Estimated pickup: {pickupTimeLabel(order.estimatedPickupAt)}
+          </Text>
+        )}
         <Text style={{ color: colors.primary }}>View order →</Text>
       </Card>
     </MotionCardPressable>
@@ -1001,6 +1007,11 @@ function Orders() {
 function OrderDetails({ id }: { id: string }) {
   const app = useApp(),
     { busy, run } = useAction();
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
   const [cancelling, setCancelling] = useState<{
     id: string;
     reason: string;
@@ -1037,6 +1048,24 @@ function OrderDetails({ id }: { id: string }) {
           </Text>
           <Text selectable style={s.pickupCode}>
             {order.pickupCode}
+          </Text>
+        </Card>
+      )}
+      {canEstimatePickup(order) && (
+        <Card tint>
+          <Text style={s.cardTitle}>Estimated pickup</Text>
+          <Text style={s.body}>
+            {order.estimatedPickupAt
+              ? pickupTimeLabel(order.estimatedPickupAt)
+              : "Waiting for the shop to set a pickup time."}
+          </Text>
+          <Text style={s.small}>
+            {order.estimatedPickupAt &&
+            Date.parse(order.estimatedPickupAt) <= now
+              ? "This estimate has passed. The shop is still preparing your documents. "
+              : ""}
+            Times are in Philippine time. Wait for Ready for pickup before
+            collecting.
           </Text>
         </Card>
       )}

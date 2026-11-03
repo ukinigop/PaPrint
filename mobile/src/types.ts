@@ -94,5 +94,9 @@ export type Order = {
   pickupCode: string;
   createdAt: string;
   readyAt?: string;
+  estimatedPickupAt?: string;
+  pickupEstimateUpdatedAt?: string;
+  pickupEstimateUpdatedBy?: string;
+  pickupEstimateVersion?: number;
   pushState: string;
 };
