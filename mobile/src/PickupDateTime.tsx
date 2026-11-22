@@ -3,6 +3,7 @@ import { Platform, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { MotionButton as Button } from "./motion";
 import { fromManilaInput, toManilaInput } from "./pickupEstimate";
+import { useAppearance } from "./Appearance";
 export function PickupDateTime({
   value,
   onChange,
@@ -12,6 +13,7 @@ export function PickupDateTime({
   onChange: (value: string) => void;
   disabled: boolean;
 }) {
+  const { scheme } = useAppearance();
   const [mode, setMode] = useState<"date" | "time" | null>(null);
   const [fallback] = useState(() =>
     toManilaInput(new Date(Date.now() + 30 * 60000).toISOString()),
@@ -47,6 +49,7 @@ export function PickupDateTime({
             mode={mode}
             timeZoneName="Asia/Manila"
             display={Platform.OS === "ios" ? "spinner" : "default"}
+            themeVariant={Platform.OS === "ios" ? scheme : undefined}
             onChange={(event, selected) => {
               if (Platform.OS !== "ios" || event.type === "dismissed")
                 setMode(null);

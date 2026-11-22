@@ -2,19 +2,23 @@ import React, { useState } from "react";
 import { View, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { Text } from "./ui";
-import { colors } from "./theme";
+import { useAppearance } from "./Appearance";
 const photos = [
-  { source: require("../assets/shops/storefront.svg"), label: "Storefront" },
-  { source: require("../assets/shops/counter.svg"), label: "Pickup counter" },
-  { source: require("../assets/shops/printer.svg"), label: "Printing area" },
+  { source: require("../assets/studio/storefront.jpg"), label: "Storefront" },
+  { source: require("../assets/studio/counter.jpg"), label: "Pickup counter" },
+  {
+    source: require("../assets/studio/print-room.jpg"),
+    label: "Printing area",
+  },
 ];
-export function ShopGallery({ compact = false }: { compact?: boolean }) {
+export function ShopGallery() {
+  const { colors } = useAppearance();
   const [selected, setSelected] = useState(0);
   return (
     <View style={{ gap: 10 }}>
       <View
         style={{
-          borderRadius: 18,
+          borderRadius: 12,
           overflow: "hidden",
           backgroundColor: colors.soft,
         }}
@@ -22,8 +26,8 @@ export function ShopGallery({ compact = false }: { compact?: boolean }) {
         <Image
           source={photos[selected].source}
           contentFit="cover"
-          accessibilityLabel={`Placeholder illustration: ${photos[selected].label}`}
-          style={{ width: "100%", height: compact ? 152 : 210 }}
+          accessibilityLabel={`Illustrative shop photo: ${photos[selected].label}`}
+          style={{ width: "100%", height: 205 }}
         />
         <View
           style={{
@@ -37,47 +41,44 @@ export function ShopGallery({ compact = false }: { compact?: boolean }) {
           }}
         >
           <Text style={{ fontSize: 11, color: colors.muted }}>
-            Sample image
+            Sample photo
           </Text>
         </View>
       </View>
-      {!compact && (
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          {photos.map((photo, index) => (
-            <Pressable
-              key={photo.label}
-              accessibilityRole="button"
-              accessibilityLabel={`Show ${photo.label.toLowerCase()} sample`}
-              accessibilityState={{ selected: selected === index }}
-              onPress={() => setSelected(index)}
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {photos.map((photo, index) => (
+          <Pressable
+            key={photo.label}
+            accessibilityRole="button"
+            accessibilityLabel={`Show ${photo.label.toLowerCase()} sample`}
+            accessibilityState={{ selected: selected === index }}
+            onPress={() => setSelected(index)}
+            style={{
+              flex: 1,
+              borderRadius: 12,
+              borderWidth: 2,
+              padding: 2,
+              borderColor: selected === index ? colors.primary : "transparent",
+              gap: 4,
+            }}
+          >
+            <Image
+              source={photo.source}
+              contentFit="cover"
+              style={{ width: "100%", height: 60, borderRadius: 8 }}
+            />
+            <Text
               style={{
-                flex: 1,
-                borderRadius: 12,
-                borderWidth: 2,
-                padding: 2,
-                borderColor:
-                  selected === index ? colors.primary : "transparent",
-                gap: 4,
+                fontSize: 10,
+                color: colors.muted,
+                textAlign: "center",
               }}
             >
-              <Image
-                source={photo.source}
-                contentFit="cover"
-                style={{ width: "100%", height: 60, borderRadius: 8 }}
-              />
-              <Text
-                style={{
-                  fontSize: 10,
-                  color: colors.muted,
-                  textAlign: "center",
-                }}
-              >
-                {photo.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+              {photo.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 }

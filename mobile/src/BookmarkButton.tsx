@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { useApp } from "./state";
 import * as api from "./api";
 import { StaleSessionError } from "./customerFlow";
-import { colors } from "./theme";
+import { useAppearance } from "./Appearance";
 export function BookmarkButton({
   shopId,
   name,
@@ -12,6 +12,7 @@ export function BookmarkButton({
   shopId: string;
   name: string;
 }) {
+  const { colors, scheme } = useAppearance();
   const app = useApp();
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
@@ -66,6 +67,7 @@ export function BookmarkButton({
           style={{ width: 24, height: 24 }}
           accessible={false}
           contentFit="contain"
+          tintColor={scheme === "dark" ? colors.primary : undefined}
         />
       )}
     </Pressable>

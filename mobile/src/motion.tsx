@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,16 +12,13 @@ import Animated, {
 } from "react-native-reanimated";
 import { Art } from "./design";
 import { Text } from "./ui";
-import { s } from "./styles";
-import { colors } from "./theme";
+import { useStyles } from "./styles";
+import { useAppearance } from "./Appearance";
 
 const revealKeyframes = { from: { opacity: 0 }, to: { opacity: 1 } };
 
-export const MotionPreference = createContext(false);
 export function useQuietMotion() {
-  const preference = useContext(MotionPreference);
-  const system = useReducedMotion();
-  return preference || system;
+  return useReducedMotion();
 }
 
 // Feedback on the touched card only; no entrance animation on lists or tabs.
@@ -82,6 +79,7 @@ export function MotionReveal({
 }
 
 export function DisclosureChevron({ expanded }: { expanded: boolean }) {
+  const { colors } = useAppearance();
   const quiet = useQuietMotion();
   return (
     <Animated.View
@@ -102,6 +100,8 @@ export function DisclosureChevron({ expanded }: { expanded: boolean }) {
 }
 
 export function SuccessNotice({ children }: { children: React.ReactNode }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   return (
     <MotionReveal>
       <View
@@ -140,6 +140,8 @@ export function MotionButton({
   secondary?: boolean;
   loading?: boolean;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const [pressed, setPressed] = useState(false);
   const quiet = useQuietMotion();
   return (
@@ -174,7 +176,7 @@ export function MotionButton({
       >
         {loading && (
           <ActivityIndicator
-            color={secondary ? colors.primary : "white"}
+            color={secondary ? colors.primary : colors.highlight}
             size="small"
           />
         )}
@@ -198,6 +200,8 @@ export function UploadProgress({
   completed: number;
   total: number;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const quiet = useQuietMotion();
   return (
     <View
@@ -235,6 +239,7 @@ export function UploadProgress({
   );
 }
 export function PrintingIndicator({ status }: { status: string }) {
+  const s = useStyles();
   const quiet = useQuietMotion();
   const printing = status === "Printing";
   const ready = status === "Ready for pickup" || status === "Collected";

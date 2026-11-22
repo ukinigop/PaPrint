@@ -5,26 +5,59 @@ import {
   Pressable,
   ScrollView,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Text } from "./ui";
 import { MotionButton, useQuietMotion } from "./motion";
 import Animated from "react-native-reanimated";
-import { colors } from "./theme";
-import { s } from "./styles";
+import { useAppearance } from "./Appearance";
+import { useStyles } from "./styles";
 import { Art, Card, Field, LinkText, Segments } from "./design";
 import { useApp } from "./state";
 import * as api from "./api";
 import type { Account } from "./types";
 import { Brand } from "./Brand";
+import Feather from "@expo/vector-icons/Feather";
+import { CityMark, StudioPrint } from "./Studio";
 import {
   passwordRequirements,
   phoneDigits,
   signupValidation,
 } from "./accountValidation";
 
+function PasswordEye({
+  visible,
+  label,
+  onPress,
+}: {
+  visible: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  const s = useStyles();
+  const { colors } = useAppearance();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={(visible ? "Hide " : "Show ") + label}
+      onPress={onPress}
+      style={s.eyeButton}
+    >
+      <Feather
+        name={visible ? "eye-off" : "eye"}
+        size={18}
+        color={colors.muted}
+      />
+    </Pressable>
+  );
+}
+
 export function AccountScreen({ signup = false }: { signup?: boolean }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
+  const wide = useWindowDimensions().width >= 860;
   const { setUser, error: initialError } = useApp();
   const [name, setName] = useState(""),
     [email, setEmail] = useState(""),
@@ -40,7 +73,9 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
     [error, setError] = useState(initialError);
   const [connection, setConnection] = useState(false),
     [address, setAddress] = useState(api.baseUrl);
+  const [connectionError, setConnectionError] = useState("");
   const lock = useRef(false);
+  const confirmationInput = useRef<import("react-native").TextInput>(null);
   async function submit() {
     if (lock.current) return;
     if (
@@ -112,259 +147,344 @@ export function AccountScreen({ signup = false }: { signup?: boolean }) {
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={[
-            s.authPage,
-            { justifyContent: "flex-start", gap: 20, paddingTop: 32 },
-          ]}
+          contentContainerStyle={{
+            flexGrow: 1,
+            alignItems: "center",
+            justifyContent: wide ? "center" : "flex-start",
+            padding: wide ? 32 : 0,
+          }}
         >
-          <View style={{ gap: 4 }}>
-            <View style={[s.between, { marginBottom: 8 }]}>
-              <Brand variant="full" width={196} />
-              <Text style={{ color: colors.primary, fontSize: 11 }}>NAGA</Text>
-            </View>
-            <Text style={s.heading}>
-              {signup ? "Create account" : "Welcome back"}
-            </Text>
-            <Text style={[s.body, { color: colors.muted }]}>
-              {signup
-                ? "Choose how you’ll use PaPrint."
-                : "Sign in to get your next print started."}
-            </Text>
-          </View>
-          {signup && (
-            <Segments
-              values={["Customer", "Shop owner"] as const}
-              value={role}
-              onChange={setRole}
-            />
-          )}
-          {error ? (
-            <Text accessibilityRole="alert" style={s.error}>
-              {error}
-            </Text>
-          ) : null}
-          {signup && (
-            <Field
-              label="Full name"
-              placeholder="Juan Dela Cruz"
-              value={name}
-              onChangeText={(value) => {
-                setName(value);
-                setError("");
-              }}
-              autoComplete="name"
-              maxLength={80}
-              editable={!busy}
-            />
-          )}
-          <Field
-            label="Email address"
-            placeholder="you@example.com"
-            value={email}
-            onChangeText={(value) => {
-              setEmail(value);
-              setError("");
+          <View
+            style={{
+              width: "100%",
+              maxWidth: wide ? 960 : 480,
+              flexDirection: wide ? "row" : "column",
+              borderRadius: wide ? 22 : 0,
+              overflow: "hidden",
+              backgroundColor: colors.canvas,
+              borderWidth: wide ? 1 : 0,
+              borderColor: colors.line,
             }}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            autoComplete="email"
-            maxLength={254}
-            editable={!busy}
-          />
-          {signup && (
-            <Field
-              label="Mobile number"
-              placeholder="09123456789"
-              value={phone}
-              onChangeText={(value) => {
-                setPhone(phoneDigits(value));
-                setError("");
+          >
+            <View
+              style={{
+                flex: wide ? 1 : undefined,
+                backgroundColor: colors.canvas,
               }}
-              keyboardType="phone-pad"
-              autoComplete="tel"
-              maxLength={11}
-              editable={!busy}
-            />
-          )}
-          <View style={{ gap: 4 }}>
-            <Field
-              label="Password"
-              placeholder={
-                signup ? "At least 10 characters" : "Enter your password"
-              }
-              value={password}
-              onChangeText={(value) => {
-                setPassword(value);
-                setError("");
-              }}
-              secureTextEntry={!show}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete={signup ? "new-password" : "current-password"}
-              maxLength={128}
-              onSubmitEditing={() => void submit()}
-              editable={!busy}
-            />
-            <LinkText onPress={() => setShow(!show)}>
-              {show ? "Hide password" : "Show password"}
-            </LinkText>
-          </View>
-          {signup && (
-            <>
-              <View style={{ gap: 8 }}>
-                <Text style={s.small}>Password requirements</Text>
-                {passwordRequirements(password).map((rule) => (
-                  <View
-                    key={rule.label}
-                    accessible
-                    accessibilityRole="checkbox"
-                    accessibilityLabel={rule.label}
-                    accessibilityState={{ checked: rule.met, disabled: true }}
-                    aria-checked={rule.met}
-                    style={[s.row, { gap: 8 }]}
-                  >
-                    <Text
-                      accessible={false}
-                      style={{
-                        color: rule.met ? colors.success : colors.muted,
-                      }}
-                    >
-                      {rule.met ? "☑" : "☐"}
-                    </Text>
-                    <Text
-                      style={[s.small, rule.met && { color: colors.success }]}
-                    >
-                      {rule.label}
-                    </Text>
-                  </View>
-                ))}
+            >
+              <View
+                style={[
+                  s.masthead,
+                  {
+                    paddingVertical: wide ? 24 : 15,
+                    paddingHorizontal: wide ? 26 : 22,
+                  },
+                ]}
+              >
+                <Brand variant="full" width={wide ? 156 : 132} />
+                <CityMark />
               </View>
-              <View style={{ gap: 4 }}>
+              {(wide || !signup) && (
+                <StudioPrint
+                  style={
+                    wide
+                      ? { width: "100%", flex: 1, minHeight: 330 }
+                      : { width: "100%", aspectRatio: 2.8 }
+                  }
+                />
+              )}
+            </View>
+            <View
+              style={{
+                flex: wide ? 1 : undefined,
+                padding: wide ? 36 : 22,
+                gap: 17,
+                justifyContent: "center",
+                backgroundColor: colors.surface,
+              }}
+            >
+              <View style={{ gap: 7, marginBottom: 3 }}>
+                <Text accessibilityRole="header" style={s.heading}>
+                  {signup ? "Create account" : "Welcome back"}
+                </Text>
+                <Text style={[s.body, { color: colors.muted }]}>
+                  {signup
+                    ? "Choose how you’ll use PaPrint."
+                    : "Sign in to place an order or manage your prints."}
+                </Text>
+              </View>
+              {signup && (
+                <Segments
+                  values={["Customer", "Shop owner"] as const}
+                  value={role}
+                  onChange={setRole}
+                />
+              )}
+
+              {signup && (
                 <Field
-                  label="Confirm password"
-                  placeholder="Re-enter your password"
-                  value={confirmation}
+                  label="Full name"
+                  placeholder="Juan Dela Cruz"
+                  value={name}
                   onChangeText={(value) => {
-                    setConfirmation(value);
+                    setName(value);
                     setError("");
                   }}
-                  secureTextEntry={!showConfirmation}
+                  autoComplete="name"
+                  maxLength={80}
+                  editable={!busy}
+                />
+              )}
+              <Field
+                label="Email address"
+                placeholder="you@example.com"
+                value={email}
+                onChangeText={(value) => {
+                  setEmail(value);
+                  setError("");
+                }}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                maxLength={254}
+                editable={!busy}
+              />
+              {signup && (
+                <Field
+                  label="Mobile number"
+                  placeholder="09123456789"
+                  value={phone}
+                  onChangeText={(value) => {
+                    setPhone(phoneDigits(value));
+                    setError("");
+                  }}
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  maxLength={11}
+                  editable={!busy}
+                />
+              )}
+              <View style={{ gap: 4 }}>
+                <Field
+                  label="Password"
+                  placeholder={
+                    signup ? "At least 10 characters" : "Enter your password"
+                  }
+                  value={password}
+                  onChangeText={(value) => {
+                    setPassword(value);
+                    setError("");
+                  }}
+                  accessory={
+                    <PasswordEye
+                      visible={show}
+                      label="password"
+                      onPress={() => setShow(!show)}
+                    />
+                  }
+                  secureTextEntry={!show}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  autoComplete="new-password"
+                  autoComplete={signup ? "new-password" : "current-password"}
                   maxLength={128}
+                  returnKeyType={signup ? "next" : "go"}
+                  onSubmitEditing={
+                    signup
+                      ? () => confirmationInput.current?.focus()
+                      : () => void submit()
+                  }
                   editable={!busy}
-                  onSubmitEditing={() => void submit()}
                 />
-                <LinkText
-                  onPress={() => setShowConfirmation(!showConfirmation)}
-                >
-                  {showConfirmation
-                    ? "Hide confirm password"
-                    : "Show confirm password"}
-                </LinkText>
-                {confirmation ? (
-                  <Text
-                    accessibilityLiveRegion="polite"
-                    style={{
-                      color:
-                        password === confirmation
-                          ? colors.success
-                          : colors.error,
-                      fontSize: 12,
-                    }}
-                  >
-                    {password === confirmation
-                      ? "Passwords match."
-                      : "Passwords do not match."}
-                  </Text>
-                ) : null}
               </View>
-            </>
-          )}
-          {signup && (
-            <View>
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: agree }}
-                aria-checked={agree}
-                onPress={() => setAgree(!agree)}
-                style={[s.row, { minHeight: 44 }]}
+              {signup && (
+                <>
+                  <View style={{ gap: 8 }}>
+                    <Text style={s.small}>Password requirements</Text>
+                    {passwordRequirements(password).map((rule) => (
+                      <View
+                        key={rule.label}
+                        accessible
+                        accessibilityRole="checkbox"
+                        accessibilityLabel={rule.label}
+                        accessibilityState={{
+                          checked: rule.met,
+                          disabled: true,
+                        }}
+                        aria-checked={rule.met}
+                        style={[s.row, { gap: 8 }]}
+                      >
+                        <Text
+                          accessible={false}
+                          style={{
+                            color: rule.met ? colors.success : colors.muted,
+                          }}
+                        >
+                          {rule.met ? "☑" : "☐"}
+                        </Text>
+                        <Text
+                          style={[
+                            s.small,
+                            rule.met && { color: colors.success },
+                          ]}
+                        >
+                          {rule.label}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                  <View style={{ gap: 4 }}>
+                    <Field
+                      label="Confirm password"
+                      inputRef={confirmationInput}
+                      placeholder="Re-enter your password"
+                      value={confirmation}
+                      onChangeText={(value) => {
+                        setConfirmation(value);
+                        setError("");
+                      }}
+                      accessory={
+                        <PasswordEye
+                          visible={showConfirmation}
+                          label="confirm password"
+                          onPress={() => setShowConfirmation(!showConfirmation)}
+                        />
+                      }
+                      secureTextEntry={!showConfirmation}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="new-password"
+                      maxLength={128}
+                      editable={!busy}
+                      onSubmitEditing={() => void submit()}
+                    />
+
+                    {confirmation ? (
+                      <Text
+                        accessibilityLiveRegion="polite"
+                        style={{
+                          color:
+                            password === confirmation
+                              ? colors.success
+                              : colors.error,
+                          fontSize: 12,
+                        }}
+                      >
+                        {password === confirmation
+                          ? "Passwords match."
+                          : "Passwords do not match."}
+                      </Text>
+                    ) : null}
+                  </View>
+                </>
+              )}
+              {signup && (
+                <View>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: agree }}
+                    aria-checked={agree}
+                    onPress={() => setAgree(!agree)}
+                    style={[s.row, { minHeight: 44 }]}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: 20 }}>
+                      {agree ? "☑" : "☐"}
+                    </Text>
+                    <Text style={[s.small, { flex: 1 }]}>
+                      I acknowledge how this preview uses my data.
+                    </Text>
+                  </Pressable>
+                  <LinkText onPress={() => setPrivacy(!privacy)}>
+                    Data & privacy notice
+                  </LinkText>
+                  {privacy && (
+                    <Card>
+                      <Text style={s.body}>
+                        PaPrint saves your account details, settings, and
+                        orders. Files are accessible to your account and the
+                        assigned shop. Use sample documents when trying this
+                        MVP.
+                      </Text>
+                    </Card>
+                  )}
+                </View>
+              )}
+              {!!error && (
+                <Text
+                  accessibilityRole="alert"
+                  style={[s.error, { color: colors.error }]}
+                >
+                  {error}
+                </Text>
+              )}
+              <MotionButton
+                title={signup ? "Create account" : "Log in"}
+                loading={busy}
+                onPress={() => void submit()}
+              />
+              {!signup ? (
+                <MotionButton
+                  title="Create an account"
+                  secondary
+                  onPress={() => router.push("/signup")}
+                />
+              ) : (
+                <>
+                  {role === "Shop owner" && (
+                    <Text style={s.small}>
+                      Next, register your shop for approval.
+                    </Text>
+                  )}
+                  <LinkText onPress={() => router.replace("/login")}>
+                    Already registered? Log in
+                  </LinkText>
+                </>
+              )}
+              <View style={s.rule} />
+              <LinkText
+                onPress={() => {
+                  setConnectionError("");
+                  setConnection(!connection);
+                }}
               >
-                <Text style={{ color: colors.primary, fontSize: 20 }}>
-                  {agree ? "☑" : "☐"}
-                </Text>
-                <Text style={[s.small, { flex: 1 }]}>
-                  I acknowledge how this preview uses my data.
-                </Text>
-              </Pressable>
-              <LinkText onPress={() => setPrivacy(!privacy)}>
-                Data & privacy notice
+                Connection settings
               </LinkText>
-              {privacy && (
+              {connection && (
                 <Card>
-                  <Text style={s.body}>
-                    PaPrint saves your account details, settings, and orders.
-                    Files are accessible to your account and the assigned shop.
-                    Use sample documents when trying this MVP.
-                  </Text>
+                  <Field
+                    label="Server address"
+                    value={address}
+                    onChangeText={setAddress}
+                    autoCapitalize="none"
+                  />
+                  {!!connectionError && (
+                    <Text
+                      accessibilityRole="alert"
+                      style={[s.error, { color: colors.error }]}
+                    >
+                      {connectionError}
+                    </Text>
+                  )}
+                  <MotionButton
+                    title="Save connection"
+                    secondary
+                    onPress={() => {
+                      void api
+                        .setServer(address.trim())
+                        .then(() => setConnection(false))
+                        .catch((e) => setConnectionError(e.message));
+                    }}
+                  />
                 </Card>
               )}
             </View>
-          )}
-          <MotionButton
-            title={signup ? "Create account" : "Log in"}
-            loading={busy}
-            onPress={() => void submit()}
-          />
-          {!signup ? (
-            <MotionButton
-              title="Create an account"
-              secondary
-              onPress={() => router.push("/signup")}
-            />
-          ) : (
-            <>
-              <Text style={s.small}>
-                Shop owners continue to business registration.
-              </Text>
-              <LinkText onPress={() => router.replace("/login")}>
-                Already registered? Log in
-              </LinkText>
-            </>
-          )}
-          <Text style={[s.small, { marginTop: 20 }]}>
-            Local printing, made simple.
-          </Text>
-          <LinkText onPress={() => setConnection(!connection)}>
-            Connection settings
-          </LinkText>
-          {connection && (
-            <Card>
-              <Field
-                label="Server address"
-                value={address}
-                onChangeText={setAddress}
-                autoCapitalize="none"
-              />
-              <MotionButton
-                title="Save connection"
-                secondary
-                onPress={() => {
-                  void api
-                    .setServer(address.trim())
-                    .then(() => setConnection(false))
-                    .catch((e) => setError(e.message));
-                }}
-              />
-            </Card>
-          )}
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 export function AccountLoading() {
+  const s = useStyles();
   const quiet = useQuietMotion();
   return (
     <SafeAreaView
@@ -374,9 +494,7 @@ export function AccountLoading() {
       ]}
     >
       <Brand variant="full" width={240} />
-      <Text style={[s.body, { color: colors.muted }]}>
-        Local printing, made simple.
-      </Text>
+
       <Animated.View
         accessibilityRole="progressbar"
         accessibilityLabel="Getting things ready"

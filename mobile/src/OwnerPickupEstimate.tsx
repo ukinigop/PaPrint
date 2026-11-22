@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { Text } from "./ui";
-import { s } from "./styles";
-import { colors } from "./theme";
+import { useStyles } from "./styles";
+import { useAppearance } from "./Appearance";
 import { MotionButton as Button, SuccessNotice } from "./motion";
 import { PickupDateTime } from "./PickupDateTime";
 import {
@@ -23,6 +23,8 @@ export function OwnerPickupEstimate({
   onSaved: (order: Order) => void;
   onRefresh: () => Promise<unknown>;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const [value, setValue] = useState(() =>
     order.estimatedPickupAt ? toManilaInput(order.estimatedPickupAt) : "",
   );

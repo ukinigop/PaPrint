@@ -3,11 +3,12 @@ import { View } from "react-native";
 import { ShopLocationPicker, type ShopLocation } from "./ShopLocationPicker";
 import { MotionButton as Button } from "./motion";
 import { Text } from "./ui";
-import { s } from "./styles";
+import { useStyles } from "./styles";
 import { useApp } from "./state";
 import * as api from "./api";
 import type { Shop } from "./types";
 export function OwnerLocation({ shop }: { shop: Shop }) {
+  const s = useStyles();
   const app = useApp();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState<ShopLocation>({

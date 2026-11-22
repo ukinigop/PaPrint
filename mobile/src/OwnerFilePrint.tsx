@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { MotionButton as Button } from "./motion";
 import { Text } from "./ui";
-import { s } from "./styles";
-import { colors } from "./theme";
+import { useStyles } from "./styles";
+import { useAppearance } from "./Appearance";
 import { captureSession, loadOwnerPrintPdf } from "./api";
 import { StaleSessionError } from "./customerFlow";
 import { createPdfPrintJob } from "./browserPrint";
@@ -20,6 +20,8 @@ export function OwnerFilePrint({
   pages: string;
   disabled: boolean;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const locked = useRef(false);

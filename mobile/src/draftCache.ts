@@ -1,4 +1,4 @@
-import { emptyDraft, type Draft } from "./customerFlow";
+import { defaults, emptyDraft, type Draft } from "./customerFlow";
 
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem" | "removeItem">;
 const key = (accountId: string, base: string) =>
@@ -40,7 +40,14 @@ export function draftCache(storage: Storage | undefined) {
             typeof draft.settings.pageRange !== "string")
         )
           return emptyDraft();
-        return draft;
+        return {
+          ...draft,
+          settings: {
+            ...draft.settings,
+            sides: defaults.sides,
+            finishing: defaults.finishing,
+          },
+        };
       } catch {
         return emptyDraft();
       }

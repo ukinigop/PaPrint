@@ -6,11 +6,13 @@ import {
   type TextProps,
   type TextInputProps,
 } from "react-native";
-import { colors, fonts } from "./theme";
+import { useAppearance } from "./Appearance";
+import { fonts } from "./theme";
 
 export const FontsReady = createContext(false);
 
 export function Text({ style, ...props }: TextProps) {
+  const { colors } = useAppearance();
   const ready = useContext(FontsReady);
   const flat = StyleSheet.flatten(style) || {};
   const weight = Number(flat.fontWeight || 400);
@@ -37,12 +39,19 @@ export function Text({ style, ...props }: TextProps) {
   );
 }
 
-export function TextInput({ style, ...props }: TextInputProps) {
+export function TextInput({
+  style,
+  ref,
+  ...props
+}: TextInputProps & { ref?: React.Ref<NativeInput> }) {
+  const { colors, scheme } = useAppearance();
   const ready = useContext(FontsReady);
   return (
     <NativeInput
+      ref={ref}
       placeholderTextColor={colors.muted}
       selectionColor={colors.sage}
+      keyboardAppearance={scheme}
       {...props}
       style={[style, { fontFamily: ready ? fonts.body : undefined }]}
     />

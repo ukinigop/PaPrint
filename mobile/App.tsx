@@ -7,13 +7,14 @@ import { useFonts } from "expo-font";
 import { Manrope_500Medium } from "@expo-google-fonts/manrope/500Medium";
 import { Manrope_600SemiBold } from "@expo-google-fonts/manrope/600SemiBold";
 import { Manrope_700Bold } from "@expo-google-fonts/manrope/700Bold";
+import { DMSans_700Bold } from "@expo-google-fonts/dm-sans/700Bold";
 import { FontsReady } from "./src/ui";
 import { AppProvider, useApp } from "./src/state";
-import { MotionPreference } from "./src/motion";
 import { AccountLoading } from "./src/AccountScreen";
-import { colors } from "./src/theme";
+import { AppearanceProvider, useAppearance } from "./src/Appearance";
 import { CustomerTabBar } from "./src/CustomerTabBar";
 function Navigator() {
+  const { colors } = useAppearance();
   const { user } = useApp();
   useEffect(() => {
     if (Platform.OS === "web") return;
@@ -32,34 +33,43 @@ function Navigator() {
     };
   }, []);
   return (
-    <MotionPreference.Provider value={user?.reducedMotion || false}>
-      <StatusBar style="dark" />
-      <View style={{ flex: 1, backgroundColor: colors.surface }}>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            animation: "none",
-            contentStyle: { backgroundColor: colors.surface },
-          }}
-        />
-        <CustomerTabBar key={user?.id || "signed-out"} />
-      </View>
-    </MotionPreference.Provider>
+    <View style={{ flex: 1, backgroundColor: colors.outer }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: "none",
+          contentStyle: { backgroundColor: colors.surface },
+        }}
+      />
+      <CustomerTabBar key={user?.id || "signed-out"} />
+    </View>
+  );
+}
+function AppContent({ ready }: { ready: boolean }) {
+  const { scheme } = useAppearance();
+  return (
+    <>
+      <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+      {ready ? <Navigator /> : <AccountLoading />}
+    </>
   );
 }
 export default function App() {
   const [loaded, error] = useFonts({
+    DMSans_700Bold,
     Manrope_500Medium,
     Manrope_600SemiBold,
     Manrope_700Bold,
   });
   return (
     <SafeAreaProvider>
-      <FontsReady.Provider value={loaded}>
-        <AppProvider>
-          {loaded || error ? <Navigator /> : <AccountLoading />}
-        </AppProvider>
-      </FontsReady.Provider>
+      <AppearanceProvider>
+        <FontsReady.Provider value={loaded}>
+          <AppProvider>
+            <AppContent ready={loaded || !!error} />
+          </AppProvider>
+        </FontsReady.Provider>
+      </AppearanceProvider>
     </SafeAreaProvider>
   );
 }

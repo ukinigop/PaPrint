@@ -5,8 +5,9 @@ import { router, usePathname } from "expo-router";
 import { Image } from "expo-image";
 import Animated, { cubicBezier } from "react-native-reanimated";
 import { Text } from "./ui";
-import { s } from "./styles";
-import { colors } from "./theme";
+import { useStyles } from "./styles";
+import { useAppearance } from "./Appearance";
+import { customerWidth } from "./theme";
 import { useQuietMotion } from "./motion";
 import { useApp } from "./state";
 import {
@@ -110,6 +111,7 @@ function TabIcon({
   selected: boolean;
   event: number;
 }) {
+  const { colors } = useAppearance();
   const color = selected ? colors.primary : colors.muted;
   return (
     <Animated.View
@@ -159,8 +161,11 @@ function TabIcon({
   );
 }
 export function CustomerTabBar() {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const { user } = useApp();
-  const selected = tabForPath(usePathname());
+  const pathname = usePathname();
+  const selected = tabForPath(pathname);
   const quiet = useQuietMotion();
   const [motion, setMotion] = useState(() => ({
     quiet,
@@ -176,23 +181,12 @@ export function CustomerTabBar() {
       style={{
         backgroundColor: colors.surface,
         width: "100%",
-        maxWidth: 438,
+        maxWidth: customerWidth,
         alignSelf: "center",
         display: selected ? "flex" : "none",
       }}
     >
-      <View
-        accessibilityLabel="Customer navigation"
-        style={[
-          s.nav,
-          {
-            backgroundColor: colors.surface,
-            paddingHorizontal: 8,
-            marginHorizontal: 24,
-            borderWidth: 0,
-          },
-        ]}
-      >
+      <View accessibilityLabel="Customer navigation" style={s.nav}>
         {customerTabs.map((tab) => (
           <Pressable
             key={tab}
@@ -214,6 +208,8 @@ export function CustomerTabBar() {
                   },
                 }));
               if (selected !== tab) router.replace(customerTabRoutes[tab]);
+              else if (pathname !== customerTabRoutes[tab])
+                router.dismissTo(customerTabRoutes[tab]);
             }}
           >
             <Animated.View

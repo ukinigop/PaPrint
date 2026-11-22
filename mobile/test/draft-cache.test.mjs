@@ -44,6 +44,13 @@ test("checkout reload restores ordered acknowledged PDFs, settings and the origi
   cache.write("customer", "local", completeDraft(recovered, "original-key"));
   assert.deepEqual(cache.read("customer", "local"), emptyDraft());
 });
+test("a draft from the old checkout uses current print sides while keeping files, notes and retry key", () => {
+  const { cache } = fixture();
+  const old = draft();
+  old.settings.sides = "Double-sided";
+  cache.write("customer", "local", old);
+  assert.deepEqual(cache.read("customer", "local"), draft());
+});
 test("checkout caches are isolated by account and API; logout and malformed storage clear safely", () => {
   const { cache, values } = fixture();
   cache.write("first", "local", draft());

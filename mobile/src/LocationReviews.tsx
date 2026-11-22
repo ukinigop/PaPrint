@@ -1,90 +1,129 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { Linking, View } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { Card, Field, Pair } from "./design";
-import { MotionButton as Button } from "./motion";
+import { MotionButton as Button, SuccessNotice } from "./motion";
 import { Text } from "./ui";
-import { s } from "./styles";
+import { useStyles } from "./styles";
 import * as api from "./api";
 import type { Shop } from "./types";
 import { shopMapUrl } from "./shopDiscovery";
+
 export function LocationReviews() {
+  const s = useStyles();
   const [shops, setShops] = useState<Shop[]>([]);
   const [reason, setReason] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [action, setAction] = useState("");
   const lock = useRef(false);
-  async function load() {
+  const generation = useRef(0);
+
+  const load = useCallback(async () => {
+    const request = ++generation.current;
     const current = api.captureSession();
+    setLoading(true);
+    setError("");
     try {
       const next = await api.request<Shop[]>("/admin/location-requests");
-      if (current()) setShops(next);
+      if (current() && request === generation.current) setShops(next);
     } catch (e) {
-      if (current())
-        setMessage(
+      if (current() && request === generation.current)
+        setError(
           e instanceof Error ? e.message : "Couldn’t load location requests.",
         );
+    } finally {
+      if (current() && request === generation.current) setLoading(false);
     }
-  }
-  useEffect(() => {
-    const timer = setTimeout(() => void load(), 0);
-    return () => clearTimeout(timer);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+      return () => {
+        generation.current++;
+      };
+    }, [load]),
+  );
+
   async function decide(shop: Shop, decision: "approved" | "rejected") {
-    if (lock.current || !shop.locationRequest) return;
+    const request = shop.locationRequest;
+    if (lock.current || !request) return;
     lock.current = true;
-    setBusy(shop._id);
+    setAction(request.requestId + ":" + decision);
     setMessage("");
+    setError("");
     const current = api.captureSession();
     try {
       await api.request(`/admin/shops/${shop._id}/location-decision`, {
         method: "POST",
         body: JSON.stringify({
-          requestId: shop.locationRequest.requestId,
+          requestId: request.requestId,
           decision,
-          reason: reason[shop._id] || "",
+          reason: reason[request.requestId]?.trim() || "",
         }),
       });
       if (!current()) return;
+      setShops((list) =>
+        list.filter(
+          (item) => item.locationRequest?.requestId !== request.requestId,
+        ),
+      );
       setMessage(
         decision === "approved"
-          ? "Location approved. Customers will see it on their next refresh."
-          : "Location rejected. The current location stays visible.",
+          ? shop.name +
+              "’s location was approved. Customers will see the updated pin."
+          : shop.name +
+              "’s request was rejected. The current pin stays visible.",
       );
       await load();
     } catch (e) {
       if (current()) {
-        setMessage(
-          e instanceof Error ? e.message : "Unable to review location.",
-        );
-        await load();
+        if ((e as { status?: number }).status === 409) await load();
+        setError(e instanceof Error ? e.message : "Unable to review location.");
       }
     } finally {
       lock.current = false;
-      if (current()) setBusy("");
+      if (current()) setAction("");
     }
   }
+
   return (
-    <View style={{ gap: 16 }}>
-      <Text style={s.sectionTitle}>Location change approvals</Text>
-      <Button
-        title="Refresh location requests"
-        secondary
-        disabled={!!busy}
-        onPress={() => void load()}
-      />
-      {message ? (
-        <Text accessibilityRole="alert" style={s.body}>
-          {message}
+    <View style={{ gap: 14 }}>
+      <View style={[s.between, { flexWrap: "wrap" }]}>
+        <Text style={s.fieldLabel}>
+          {loading
+            ? "Loading location requests…"
+            : shops.length
+              ? `${shops.length} pending location change${shops.length === 1 ? "" : "s"}`
+              : error
+                ? "Location requests"
+                : "No pending location changes."}
         </Text>
-      ) : null}
-      {!shops.length && (
-        <Text style={s.small}>No pending location changes.</Text>
+        <Button
+          title="Refresh"
+          secondary
+          loading={loading}
+          disabled={!!action}
+          onPress={() => void load()}
+        />
+      </View>
+      {!!message && <SuccessNotice>{message}</SuccessNotice>}
+      {!!error && (
+        <Text accessibilityRole="alert" style={s.error}>
+          {error}
+        </Text>
       )}
       {shops.map((shop) => {
         const request = shop.locationRequest!;
+        const draft = reason[request.requestId] || "";
         return (
           <Card key={request.requestId}>
             <Text style={s.cardTitle}>{shop.name}</Text>
+            <Text style={s.small}>
+              Requested {new Date(request.requestedAt).toLocaleString()}
+            </Text>
             <Pair
               label="Current location"
               value={shop.locationAddress || shop.address}
@@ -92,52 +131,56 @@ export function LocationReviews() {
             <Button
               title="View current location"
               secondary
-              disabled={!!busy}
               onPress={() => {
                 void Linking.openURL(shopMapUrl(shop)).catch(() =>
-                  setMessage("Couldn’t open Maps."),
+                  setError("Couldn’t open Maps."),
                 );
               }}
             />
+            <View style={s.rule} />
             <Pair label="Proposed location" value={request.address} />
             <Text style={s.small}>
               {request.coordinates.latitude.toFixed(6)},{" "}
-              {request.coordinates.longitude.toFixed(6)} · Requested{" "}
-              {new Date(request.requestedAt).toLocaleString()}
+              {request.coordinates.longitude.toFixed(6)}
             </Text>
             <Button
               title="View proposed location"
               secondary
-              disabled={!!busy}
               onPress={() => {
                 void Linking.openURL(
                   shopMapUrl({ ...shop, coordinates: request.coordinates }),
-                ).catch(() => setMessage("Couldn’t open Maps."));
+                ).catch(() => setError("Couldn’t open Maps."));
               }}
             />
+            <View style={s.rule} />
             <Field
-              label={`Location review reason for ${shop.name}`}
-              value={reason[shop._id] || ""}
+              label="Review reason (required for rejection)"
+              value={draft}
               onChangeText={(value) =>
-                setReason((previous) => ({ ...previous, [shop._id]: value }))
+                setReason((previous) => ({
+                  ...previous,
+                  [request.requestId]: value,
+                }))
               }
+              editable={!action && !loading}
               maxLength={500}
               multiline
             />
             <Text style={s.small}>
-              Approving replaces the public storefront pin and location address.
-              The registered business address stays on file.
+              Approval updates the public storefront pin and address. The
+              registered business address stays on file.
             </Text>
             <Button
               title="Approve location change"
-              loading={busy === shop._id}
-              disabled={!!busy}
+              loading={action === request.requestId + ":approved"}
+              disabled={!!action || loading}
               onPress={() => void decide(shop, "approved")}
             />
             <Button
               title="Reject location change"
               secondary
-              disabled={!!busy || !reason[shop._id]?.trim()}
+              loading={action === request.requestId + ":rejected"}
+              disabled={!!action || loading || !draft.trim()}
               onPress={() => void decide(shop, "rejected")}
             />
           </Card>

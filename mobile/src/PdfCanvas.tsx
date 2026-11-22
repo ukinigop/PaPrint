@@ -4,8 +4,8 @@ import { WebView } from "react-native-webview";
 import { baseUrl, captureSession } from "./api";
 import { pdfChunk } from "./pdfBridge";
 import { Text } from "./ui";
-import { s } from "./styles";
-import { colors } from "./theme";
+import { useStyles } from "./styles";
+import { useAppearance } from "./Appearance";
 
 export function PdfCanvas({
   bytes,
@@ -14,6 +14,8 @@ export function PdfCanvas({
   bytes: ArrayBuffer;
   name: string;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const frame = useRef<WebView>(null);
   const expected = useRef(0);
   const current = useRef(captureSession()).current;

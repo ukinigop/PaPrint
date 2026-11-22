@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { Pressable, Switch, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { Text, TextInput } from "./ui";
 import { MotionButton } from "./motion";
-import { colors } from "./theme";
-import { s } from "./styles";
+import { useAppearance } from "./Appearance";
+import { useStyles } from "./styles";
 import type { Account } from "./types";
 import * as api from "./api";
 
@@ -21,9 +21,10 @@ export function ProfilePanel({
   onNotifications: () => Promise<void>;
   notificationMessage: string;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const [name, setName] = useState(user.name);
   const [paper, setPaper] = useState(user.defaultPaper);
-  const [reducedMotion, setReducedMotion] = useState(user.reducedMotion);
   const [busy, setBusy] = useState(false);
   const [pendingAction, setPendingAction] = useState("");
   const [notice, setNotice] = useState("");
@@ -50,7 +51,6 @@ export function ProfilePanel({
       body: JSON.stringify({
         name: name.trim(),
         defaultPaper: paper,
-        reducedMotion,
       }),
     });
     onUpdated(updated);
@@ -113,19 +113,6 @@ export function ProfilePanel({
               <Text style={s.choiceText}>{value}</Text>
             </Pressable>
           ))}
-        </View>
-        <View style={[s.between, { marginTop: 18 }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.body}>Reduce motion</Text>
-            <Text style={s.muted}>Keep loading and status visuals still.</Text>
-          </View>
-          <Switch
-            accessibilityLabel="Reduce motion"
-            value={reducedMotion}
-            onValueChange={setReducedMotion}
-            disabled={busy}
-            trackColor={{ true: colors.primary, false: colors.line }}
-          />
         </View>
         <MotionButton
           title="Save settings"

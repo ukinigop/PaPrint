@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   emptyDraft,
+  draftForShop,
   completeDraft,
   createSessionScope,
   createQuoteLoader,
@@ -23,6 +24,21 @@ const draft = () => ({
   shop: { _id: "shop-one" },
   files: [file("second"), file("first")],
   requestKey: "booking-one",
+});
+
+test("resuming or moving a print draft keeps the ordered uploads and quotes under the correct booking key", () => {
+  const current = { ...draft(), notes: "Keep in order" };
+  assert.deepEqual(
+    draftForShop(current, current.shop, "A4", "unused", false),
+    current,
+  );
+  const next = { _id: "other" };
+  const moved = draftForShop(current, next, "Legal", "new-key", true);
+  assert.deepEqual(moved, { ...current, shop: next, requestKey: "new-key" });
+  assert.equal(completeDraft(moved, current.requestKey), moved);
+  const fresh = draftForShop(current, next, "Legal", "fresh-key", false);
+  assert.deepEqual(fresh.files, []);
+  assert.equal(fresh.settings.paper, "Legal");
 });
 
 test("expired or switched sessions cannot deliver delayed account results", async () => {

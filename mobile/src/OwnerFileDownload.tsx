@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import { MotionButton as Button } from "./motion";
 import { Text } from "./ui";
-import { s } from "./styles";
+import { useStyles } from "./styles";
 import * as api from "./api";
 
 export function OwnerFileDownload({
@@ -11,6 +11,7 @@ export function OwnerFileDownload({
   orderId: string;
   fileId: string;
 }) {
+  const s = useStyles();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const locked = useRef(false);

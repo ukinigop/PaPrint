@@ -15,7 +15,7 @@ import type { Account, Order, Shop } from "./types";
 import { latestWorkspace } from "./ownerForm";
 import { tabDraftCache } from "./draftCache";
 import {
-  defaults,
+  draftForShop,
   emptyDraft,
   completeDraft,
   StaleSessionError,
@@ -214,14 +214,17 @@ function useAppState() {
     setUser(null);
     await api.signOut();
   }
-  function begin(shop: Shop) {
-    setDraft({
-      shop,
-      files: [],
-      settings: { ...defaults, paper: user?.defaultPaper || "A4" },
-      notes: "",
-      requestKey: Crypto.randomUUID(),
-    });
+  function begin(shop: Shop, keepFiles = false) {
+    const requestKey = Crypto.randomUUID();
+    setDraft((current) =>
+      draftForShop(
+        current,
+        shop,
+        user?.defaultPaper || "A4",
+        requestKey,
+        keepFiles,
+      ),
+    );
   }
   async function updateProfile(data: Partial<Account>) {
     const current = api.captureSession();

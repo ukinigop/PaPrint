@@ -1,11 +1,12 @@
 import React from "react";
 import { Card, Field } from "./design";
 import { Text } from "./ui";
-import { s } from "./styles";
+import { useStyles } from "./styles";
 import { MotionButton as Button, MotionReveal } from "./motion";
 import type { Order } from "./types";
 
 export function OrderOutcome({ order }: { order: Order }) {
+  const s = useStyles();
   return (
     <Card tint>
       <Text style={s.cardTitle}>
@@ -44,6 +45,7 @@ export function EndOrderPanel({
   onKeep: () => void;
   onConfirm: () => void;
 }) {
+  const s = useStyles();
   return (
     <MotionReveal>
       <Card>

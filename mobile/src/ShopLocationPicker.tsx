@@ -4,7 +4,7 @@ import { MapCanvas } from "./MapCanvas";
 import { Field } from "./design";
 import { MotionButton as Button } from "./motion";
 import { Text } from "./ui";
-import { s } from "./styles";
+import { useStyles } from "./styles";
 import * as api from "./api";
 import type { Coordinates } from "./shopDiscovery";
 export type ShopLocation = { address: string; coordinates: Coordinates | null };
@@ -15,6 +15,7 @@ export function ShopLocationPicker({
   value: ShopLocation;
   onChange: (next: ShopLocation) => void;
 }) {
+  const s = useStyles();
   const [query, setQuery] = useState(value.address);
   const [results, setResults] = useState<ShopLocation[]>([]);
   const [busy, setBusy] = useState(false);

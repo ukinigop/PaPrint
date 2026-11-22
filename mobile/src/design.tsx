@@ -7,8 +7,8 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { Text, TextInput } from "./ui";
-import { s } from "./styles";
-import { colors, depth } from "./theme";
+import { useStyles } from "./styles";
+import { useAppearance } from "./Appearance";
 
 const assets = {
   logo: require("../assets/brand/icon.png"),
@@ -40,11 +40,13 @@ export function Art({
   width?: number;
   height?: number;
 }) {
+  const { scheme, colors } = useAppearance();
   return (
     <Image
       source={assets[name]}
       style={{ width: width || size, height: height || size }}
       contentFit="contain"
+      tintColor={scheme === "dark" ? colors.primary : undefined}
       accessibilityIgnoresInvertColors
     />
   );
@@ -58,28 +60,60 @@ export function Card({
   tint?: boolean;
   style?: ViewStyle;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   return (
     <View style={[s.card, tint && { backgroundColor: colors.soft }, style]}>
       {children}
     </View>
   );
 }
-export function Field({ label, ...props }: TextInputProps & { label: string }) {
+export function Field({
+  label,
+  accessory,
+  inputRef,
+  ...props
+}: TextInputProps & {
+  label: string;
+  accessory?: React.ReactNode;
+  inputRef?: React.Ref<import("react-native").TextInput>;
+}) {
+  const s = useStyles();
+  const { colors } = useAppearance();
+  const [focused, setFocused] = React.useState(false);
   return (
     <View style={{ gap: 8 }}>
-      <Text style={{ fontSize: 11, color: colors.muted, fontWeight: "600" }}>
-        {label}
-      </Text>
-      <TextInput
-        {...props}
-        accessibilityLabel={label}
-        style={[
-          s.input,
-          { marginBottom: 0, borderWidth: 0, borderRadius: 16 },
-          props.multiline && { minHeight: 96, textAlignVertical: "top" },
-          props.style,
-        ]}
-      />
+      <Text style={s.fieldLabel}>{label}</Text>
+      <View style={{ justifyContent: "center" }}>
+        <TextInput
+          {...props}
+          ref={inputRef}
+          onFocus={(event) => {
+            setFocused(true);
+            props.onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setFocused(false);
+            props.onBlur?.(event);
+          }}
+          accessibilityLabel={label}
+          style={[
+            s.input,
+            { marginBottom: 0 },
+            focused && {
+              borderColor: colors.primary,
+              backgroundColor: colors.inputFocus,
+            },
+            props.editable === false && { backgroundColor: colors.soft },
+            !!accessory && { paddingRight: 52 },
+            props.multiline && { minHeight: 96, textAlignVertical: "top" },
+            props.style,
+          ]}
+        />
+        {!!accessory && (
+          <View style={{ position: "absolute", right: 4 }}>{accessory}</View>
+        )}
+      </View>
     </View>
   );
 }
@@ -90,13 +124,16 @@ export function LinkText({
   children: React.ReactNode;
   onPress: () => void;
 }) {
+  const { colors } = useAppearance();
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
       style={{ minHeight: 44, justifyContent: "center" }}
     >
-      <Text style={{ color: colors.primary, fontSize: 14 }}>{children}</Text>
+      <Text style={{ color: colors.primary, fontSize: 14, fontWeight: "700" }}>
+        {children}
+      </Text>
     </Pressable>
   );
 }
@@ -107,6 +144,7 @@ export function Pill({
   children: React.ReactNode;
   tone?: "primary" | "positive" | "neutral" | "negative";
 }) {
+  const { colors } = useAppearance();
   const palette = {
     primary: { background: colors.soft, text: colors.primary },
     positive: { background: colors.successSurface, text: colors.success },
@@ -120,10 +158,17 @@ export function Pill({
         backgroundColor: palette.background,
         paddingHorizontal: 10,
         paddingVertical: 6,
-        borderRadius: 12,
+        borderRadius: 20,
       }}
     >
-      <Text style={{ fontSize: 12, lineHeight: 18, color: palette.text }}>
+      <Text
+        style={{
+          fontSize: 12,
+          lineHeight: 16,
+          fontWeight: "700",
+          color: palette.text,
+        }}
+      >
         {children}
       </Text>
     </View>
@@ -140,8 +185,9 @@ export function Segments<T extends string>({
   onChange: (v: T) => void;
   disabled?: boolean;
 }) {
+  const { colors } = useAppearance();
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
       {values.map((v) => (
         <Pressable
           key={v}
@@ -154,19 +200,22 @@ export function Segments<T extends string>({
           style={{
             minHeight: 44,
             justifyContent: "center",
-            padding: 12,
-            borderRadius: 12,
-            backgroundColor: v === value ? colors.soft : colors.surface,
-            ...(v === value ? {} : depth.small),
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+            borderRadius: 22,
+            borderWidth: 1,
+            borderColor: v === value ? colors.primary : colors.inputLine,
+            backgroundColor: v === value ? colors.primary : colors.surface,
           }}
         >
           <Text
             style={{
-              fontSize: 12,
-              color: v === value ? colors.primary : colors.muted,
+              fontSize: 13,
+              fontWeight: "600",
+              color: v === value ? colors.highlight : colors.ink,
             }}
           >
-            {v}
+            {v.charAt(0).toUpperCase() + v.slice(1)}
           </Text>
         </Pressable>
       ))}
@@ -174,14 +223,20 @@ export function Segments<T extends string>({
   );
 }
 export function Pair({ label, value }: { label: string; value: string }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   return (
     <View style={[s.between, { alignItems: "flex-start" }]}>
       <Text style={[s.body, { color: colors.muted, flex: 1 }]}>{label}</Text>
-      <Text style={[s.body, { flex: 1, textAlign: "right" }]}>{value}</Text>
+      <Text
+        style={[s.body, { flex: 1, textAlign: "right", fontWeight: "600" }]}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
 export const money = (n: number) => "₱" + n.toFixed(2);
 export const stage = (status: string) =>
-  ({ Queued: "Preparing", "Ready for pickup": "Done" })[status] || status;
+  status === "Queued" ? "Preparing" : status;
 export const orderCode = (id: string) => "#PR-" + id.slice(-6).toUpperCase();

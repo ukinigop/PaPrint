@@ -1,8 +1,9 @@
 import React from "react";
 import { View } from "react-native";
 import { Text } from "./ui";
-import { s } from "./styles";
-import { colors, fonts } from "./theme";
+import { useStyles } from "./styles";
+import { useAppearance } from "./Appearance";
+import { fonts } from "./theme";
 import { toManilaInput } from "./pickupEstimate";
 export function PickupDateTime({
   value,
@@ -13,6 +14,8 @@ export function PickupDateTime({
   onChange: (value: string) => void;
   disabled: boolean;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   return (
     <View style={{ gap: 8 }}>
       <Text style={s.small}>Estimated pickup time</Text>

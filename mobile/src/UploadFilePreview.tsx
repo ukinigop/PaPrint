@@ -5,8 +5,9 @@ import { captureSession, loadUploadPreview } from "./api";
 import { StaleSessionError } from "./customerFlow";
 import { MotionButton as Button } from "./motion";
 import { Text } from "./ui";
-import { s } from "./styles";
-import { colors, depth } from "./theme";
+import { useStyles } from "./styles";
+import { useAppearance } from "./Appearance";
+import { depths } from "./theme";
 import { Art } from "./design";
 import { PdfCanvas } from "./PdfCanvas";
 
@@ -19,6 +20,8 @@ export function UploadFilePreview({
   name: string;
   children: React.ReactNode;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const [open, setOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [bytes, setBytes] = useState<ArrayBuffer | null>(null);
@@ -71,7 +74,7 @@ export function UploadFilePreview({
         onRequestClose={() => setOpen(false)}
         animationType="none"
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.surface }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.outer }}>
           <View style={[s.app, { padding: 16, gap: 12 }]}>
             <View style={s.row}>
               <Pressable
@@ -79,7 +82,7 @@ export function UploadFilePreview({
                 accessibilityLabel="Close preview"
                 onPress={() => setOpen(false)}
                 style={{
-                  ...depth.small,
+                  ...depths(colors).small,
                   backgroundColor: colors.surface,
                   borderRadius: 16,
                   minWidth: 44,

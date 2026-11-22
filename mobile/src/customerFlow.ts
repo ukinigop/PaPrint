@@ -27,6 +27,24 @@ export function emptyDraft(): Draft {
 export function completeDraft(draft: Draft, requestKey: string): Draft {
   return draft.requestKey === requestKey ? emptyDraft() : draft;
 }
+export function draftForShop(
+  current: Draft,
+  shop: Shop,
+  paper: Settings["paper"],
+  requestKey: string,
+  keepFiles: boolean,
+): Draft {
+  if (current.shop?._id === shop._id && current.requestKey)
+    return { ...current, shop };
+  if (keepFiles && current.files.length)
+    return { ...current, shop, requestKey };
+  return {
+    ...emptyDraft(),
+    shop,
+    requestKey,
+    settings: { ...defaults, paper },
+  };
+}
 export async function placeBooking(
   draft: Draft,
   amount: number,

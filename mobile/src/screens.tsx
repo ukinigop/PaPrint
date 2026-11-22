@@ -3,11 +3,12 @@ import {
   isActiveOrder,
   isTerminalOrder,
   isCancelledOrRejected,
-  paymentLabel,
 } from "./orderStatus";
 import { EndOrderPanel, OrderOutcome } from "./OrderOutcome";
 import { Admin } from "./Admin";
 import { Brand } from "./Brand";
+import Feather from "@expo/vector-icons/Feather";
+import { BookingProgress, CityMark, StudioPrint } from "./Studio";
 import { UploadFilePreview } from "./UploadFilePreview";
 import { pricingSummary } from "./pricingSummary";
 import { canEstimatePickup, pickupTimeLabel } from "./pickupEstimate";
@@ -19,16 +20,16 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  Switch,
+  useWindowDimensions,
   View,
-  type TextInputProps,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams, type Href } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import { Text } from "./ui";
-import { s } from "./styles";
-import { colors } from "./theme";
+import { useStyles } from "./styles";
+import { useAppearance } from "./Appearance";
+import { AppearanceSettings } from "./AppearanceSettings";
 import {
   Art,
   Card,
@@ -75,17 +76,40 @@ function Frame({
   subtitle,
   tab,
   back,
+  backLabel = "Back",
+  footer,
+  bookingStep,
   scrollRef,
   children,
 }: {
   title: string;
   subtitle?: string;
   tab?: Tab;
-  back?: string;
+  back?: Href;
+  backLabel?: string;
+  footer?: React.ReactNode;
+  bookingStep?: React.ComponentProps<typeof BookingProgress>["current"];
   scrollRef?: React.RefObject<ScrollView | null>;
   children: React.ReactNode;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const app = useApp();
+  const { height } = useWindowDimensions();
+  const sticky = !!footer && height >= 520;
+  const errorNotice = app.error ? (
+    <View accessibilityRole="alert" style={[s.error, { alignItems: "center" }]}>
+      <Text style={{ flex: 1, color: colors.error }}>{app.error}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Dismiss error"
+        style={s.iconAction}
+        onPress={() => app.setError("")}
+      >
+        <Feather name="x" size={18} color={colors.error} />
+      </Pressable>
+    </View>
+  ) : null;
   return (
     <SafeAreaView
       style={s.safe}
@@ -97,6 +121,7 @@ function Frame({
       >
         <ScrollView
           ref={scrollRef}
+          style={{ flex: 1 }}
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
@@ -106,34 +131,41 @@ function Frame({
               }}
             />
           }
-          contentContainerStyle={{ padding: 24, gap: 20, paddingBottom: 32 }}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingTop: 16,
+            gap: 18,
+            paddingBottom: sticky ? 18 : 28,
+          }}
         >
-          <View style={{ gap: 8 }}>
-            {back && (
-              <LinkText onPress={() => router.push(back as "/home")}>
-                ‹ Back
-              </LinkText>
+          <View style={s.masthead}>
+            {back ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  backLabel === "Back" ? "Go back" : "Back to " + backLabel
+                }
+                onPress={() => router.dismissTo(back)}
+                style={[s.row, { minWidth: 44, minHeight: 44 }]}
+              >
+                <Feather name="arrow-left" size={19} color={colors.primary} />
+                <Text style={s.fieldLabel}>{backLabel}</Text>
+              </Pressable>
+            ) : (
+              <Brand width={34} />
             )}
-            <View style={s.between}>
-              <Brand width={40} />
-              <Text style={{ fontSize: 11, color: colors.primary }}>NAGA</Text>
-            </View>
-            <Text style={[s.heading, { marginTop: 0, letterSpacing: 0 }]}>
+            <CityMark />
+          </View>
+          <View style={{ gap: 6 }}>
+            <Text accessibilityRole="header" style={s.heading}>
               {title}
             </Text>
             {subtitle && (
               <Text style={[s.body, { color: colors.muted }]}>{subtitle}</Text>
             )}
           </View>
-          {app.error ? (
-            <View
-              accessibilityRole="alert"
-              style={[s.error, { flexDirection: "column" }]}
-            >
-              <Text style={{ color: colors.error }}>{app.error}</Text>
-              <LinkText onPress={() => app.setError("")}>Dismiss</LinkText>
-            </View>
-          ) : null}
+          {bookingStep && <BookingProgress current={bookingStep} />}
+          {!footer && errorNotice}
           {app.refreshError ? (
             <Card>
               <Text accessibilityRole="alert" style={{ color: colors.error }}>
@@ -152,12 +184,19 @@ function Frame({
             </Card>
           ) : null}
           {children}
-          {!tab && (
-            <Text style={[s.small, { marginTop: 28 }]}>
-              Local printing, made simple.
-            </Text>
+          {!!footer && !sticky && (
+            <View style={{ gap: 8 }}>
+              {errorNotice}
+              {footer}
+            </View>
           )}
         </ScrollView>
+        {sticky && (
+          <View style={s.actionFooter}>
+            {errorNotice}
+            {footer}
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -186,65 +225,126 @@ function useAction() {
 }
 function ShopCard({
   shop,
-  compact,
   distance,
+  from,
 }: {
   shop: Shop;
-  compact?: boolean;
   distance?: number | null;
+  from?: string;
 }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
+  const address = shop.locationAddress || shop.address;
+  const status = shop.open ? "Open now" : "Closed";
+  const hours = shopHours(shop.hours);
+  const ongoing = shop.queue?.ongoing ?? 0;
+  const distanceLabel =
+    distance === undefined
+      ? undefined
+      : distance === null
+        ? "Distance unavailable"
+        : `${distance.toFixed(1)} km away`;
   return (
     <View style={{ position: "relative" }}>
       <MotionCardPressable
         accessibilityRole="button"
-        accessibilityLabel={"View " + shop.name}
+        accessibilityLabel={[
+          "View " + shop.name,
+          address,
+          status,
+          shopSummary(shop),
+          distanceLabel,
+        ]
+          .filter(Boolean)
+          .join(", ")}
         onPress={() =>
-          router.push({ pathname: "/shop", params: { id: shop._id } })
+          router.push({ pathname: "/shop", params: { id: shop._id, from } })
         }
       >
-        <Card>
-          <ShopGallery compact />
-          <View style={[s.row, { gap: 12 }]}>
-            <View style={{ flex: 1, gap: 4 }}>
+        <Card style={s.shopCard}>
+          <View style={s.shopCardHeader}>
+            <View style={s.shopIcon}>
+              <Feather
+                name="printer"
+                size={22}
+                color={colors.primary}
+                accessible={false}
+              />
+            </View>
+            <View style={{ flex: 1, gap: 3 }}>
               <Text style={s.cardTitle}>{shop.name}</Text>
-              <Text style={s.small}>
-                {shop.locationAddress || shop.address}
-              </Text>
+              <View style={[s.row, { alignItems: "flex-start", gap: 5 }]}>
+                <Feather
+                  name="map-pin"
+                  size={13}
+                  color={colors.accent}
+                  accessible={false}
+                  style={{ marginTop: 3 }}
+                />
+                <Text style={[s.small, { flex: 1 }]}>{address}</Text>
+              </View>
             </View>
           </View>
-          <Text style={s.small}>{shopSummary(shop)}</Text>
-          {distance !== undefined && (
-            <Text style={s.small}>
-              {distance === null
-                ? "Distance unavailable · shop pin not set"
-                : `${distance.toFixed(1)} km away · straight-line distance`}
+          <View style={[s.row, { flexWrap: "wrap", rowGap: 4 }]}>
+            <Pill tone={shop.open ? "positive" : "neutral"}>{status}</Pill>
+            <Text style={[s.small, { flexShrink: 1 }]}>{hours}</Text>
+            {distanceLabel && <Text style={s.small}>{distanceLabel}</Text>}
+          </View>
+          <View style={s.shopCardFooter}>
+            <Text style={[s.small, { flex: 1 }]}>
+              {savedShopLabel(shop.savedCount)} · {ongoing}{" "}
+              {ongoing === 1 ? "Ongoing Order" : "Ongoing Orders"}
             </Text>
-          )}
-          {!compact && (
-            <Pill tone={shop.open ? "positive" : "neutral"}>
-              {shop.open ? "Open now" : "Closed"}
-            </Pill>
-          )}
+            <View style={s.shopCardArrow}>
+              <Feather
+                name="arrow-right"
+                size={16}
+                color={colors.primary}
+                accessible={false}
+              />
+            </View>
+          </View>
         </Card>
       </MotionCardPressable>
-      <View style={{ position: "absolute", top: 28, right: 28 }}>
+      <View style={s.shopCardBookmark}>
         <BookmarkButton shopId={shop._id} name={shop.name} />
       </View>
     </View>
   );
 }
-function OrderCard({ order }: { order: Order }) {
+function OrderCard({
+  order,
+  from,
+}: {
+  order: Order;
+  from: "home" | "active" | "history";
+}) {
+  const s = useStyles();
+  const { colors } = useAppearance();
+  const ready = order.status === "Ready for pickup";
   return (
     <MotionCardPressable
       accessibilityRole="button"
-      accessibilityLabel={"View order " + orderCode(order._id)}
+      accessibilityLabel={
+        "View order " +
+        orderCode(order._id) +
+        ", " +
+        order.shop.name +
+        ", " +
+        stage(order.status)
+      }
       onPress={() =>
-        router.push({ pathname: "/order", params: { id: order._id } })
+        router.push({ pathname: "/order", params: { id: order._id, from } })
       }
     >
       <Card>
-        <View style={s.between}>
-          <Text style={s.cardTitle}>{orderCode(order._id)}</Text>
+        <View style={[s.between, { flexWrap: "wrap" }]}>
+          <View style={s.row}>
+            <Feather name="file-text" size={18} color={colors.primary} />
+            <Text style={[s.fieldLabel, { letterSpacing: 0.5 }]}>
+              {orderCode(order._id)}
+            </Text>
+          </View>
           <Pill
             tone={
               order.status === "Ready for pickup"
@@ -259,11 +359,21 @@ function OrderCard({ order }: { order: Order }) {
             {stage(order.status)}
           </Pill>
         </View>
-        <Text style={s.body}>{order.shop.name}</Text>
-        <Text style={s.small}>
-          {order.files[0]?.name || "Documents"}
-          {order.files.length > 1 ? ` +${order.files.length - 1} more` : ""}
-        </Text>
+        <View style={{ gap: 3 }}>
+          <View style={s.between}>
+            <Text style={s.cardTitle}>{order.shop.name}</Text>
+            <Feather
+              name="chevron-right"
+              size={18}
+              color={colors.muted}
+              accessible={false}
+            />
+          </View>
+          <Text style={s.small} numberOfLines={2}>
+            {order.files[0]?.name || "Documents"}
+            {order.files.length > 1 ? ` +${order.files.length - 1} more` : ""}
+          </Text>
+        </View>
         <Text style={s.small}>
           {isCancelledOrRejected(order)
             ? "No payment due"
@@ -276,14 +386,41 @@ function OrderCard({ order }: { order: Order }) {
             Estimated pickup: {pickupTimeLabel(order.estimatedPickupAt)}
           </Text>
         )}
-        <Text style={{ color: colors.primary }}>View order →</Text>
+        {ready && (
+          <Text style={[s.fieldLabel, { color: colors.primary }]}>
+            Show pickup code →
+          </Text>
+        )}
       </Card>
     </MotionCardPressable>
   );
 }
 function Home() {
-  const { user, shops, orders, loading } = useApp();
-  const active = orders.find(isActiveOrder);
+  const s = useStyles();
+  const { colors } = useAppearance();
+  const { user, shops, orders, loading, draft } = useApp();
+  const activeOrders = orders.filter(isActiveOrder);
+  const active =
+    activeOrders.find((order) => order.status === "Ready for pickup") ||
+    activeOrders[0];
+  const resume = !!draft.shop && draft.files.length > 0;
+  const partner =
+    shops.find((shop) => shop.open && user?.savedShops?.includes(shop._id)) ||
+    shops.find((shop) => shop.open) ||
+    shops[0];
+  const activeSection = active && (
+    <View style={{ gap: 8 }}>
+      <View style={[s.between, { flexWrap: "wrap" }]}>
+        <Text style={s.sectionTitle}>Your current order</Text>
+        {activeOrders.length > 1 && (
+          <LinkText onPress={() => router.navigate("/orders")}>
+            All {activeOrders.length} active →
+          </LinkText>
+        )}
+      </View>
+      <OrderCard order={active} from="home" />
+    </View>
+  );
   return (
     <Frame
       title="Print"
@@ -292,48 +429,95 @@ function Home() {
       }
       tab="Print"
     >
-      <Card tint>
-        <Text style={[s.heading, { marginTop: 0 }]}>
-          From file to finished.
-        </Text>
-        <Text style={[s.body, { color: colors.muted }]}>
-          Upload a document and let a nearby shop handle the rest.
-        </Text>
-        <Button
-          title="Start a print order"
-          onPress={() => router.push("/shops")}
-        />
-      </Card>
-      <Text style={s.sectionTitle}>Your current order</Text>
-      {active ? (
-        <OrderCard order={active} />
-      ) : (
-        <Card>
-          <Text style={s.body}>Your next print starts here.</Text>
-          <Text style={s.small}>
-            Track your order here once you’ve sent it to a shop.
-          </Text>
-        </Card>
+      {active?.status === "Ready for pickup" && activeSection}
+      <MotionCardPressable
+        accessibilityRole="button"
+        accessibilityLabel={
+          resume ? "Continue print order" : "Start a print order"
+        }
+        onPress={() =>
+          resume ? router.push("/options") : router.navigate("/shops")
+        }
+      >
+        <View
+          style={{
+            borderRadius: 20,
+            overflow: "hidden",
+            backgroundColor: colors.feature,
+          }}
+        >
+          <StudioPrint
+            style={{
+              width: "100%",
+              aspectRatio: active || resume ? 3.2 : 2.05,
+            }}
+          />
+          <View
+            style={[s.between, { paddingHorizontal: 18, paddingVertical: 16 }]}
+          >
+            <View style={{ flex: 1, gap: 3 }}>
+              <Text style={[s.sectionTitle, { color: colors.featureInk }]}>
+                {resume ? "Continue print order" : "Start a print order"}
+              </Text>
+              <Text style={[s.small, { color: colors.featureMuted }]}>
+                {resume
+                  ? `${draft.shop?.name} · ${draft.files.length} ${draft.files.length === 1 ? "file" : "files"}`
+                  : "Choose a partner shop"}
+              </Text>
+            </View>
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: colors.featureMuted,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Feather name="arrow-up-right" size={21} color={colors.feature} />
+            </View>
+          </View>
+        </View>
+      </MotionCardPressable>
+      {active?.status !== "Ready for pickup" && activeSection}
+      {!active && !resume && partner && (
+        <View style={{ gap: 8 }}>
+          <View style={s.between}>
+            <Text style={s.sectionTitle}>
+              {user?.savedShops?.includes(partner._id)
+                ? "Bookmarked shop"
+                : "Partner shop"}
+            </Text>
+            <LinkText onPress={() => router.navigate("/shops")}>
+              All shops →
+            </LinkText>
+          </View>
+          <ShopCard shop={partner} from="home" />
+        </View>
       )}
-      <Text style={s.sectionTitle}>Naga partners</Text>
-      {shops.slice(0, 1).map((shop) => (
-        <ShopCard key={shop._id} shop={shop} compact />
-      ))}
-      {!shops.length && (
+      {!active && !resume && !shops.length && (
         <Text style={s.small}>
           {loading
             ? "Loading partner shops…"
             : "Partner shops will appear here once they are approved."}
         </Text>
       )}
-      <LinkText onPress={() => router.push("/shops")}>See all shops →</LinkText>
     </Frame>
   );
 }
-function Shops() {
-  const { shops, loading } = useApp();
+function Shops({ view }: { view?: string }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
+  const { shops, loading, user } = useApp();
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("All shops");
+  const filter =
+    view === "bookmarks"
+      ? "Bookmarks"
+      : view === "all"
+        ? "All shops"
+        : "Open now";
+  const [sorting, setSorting] = useState(false);
   const [sort, setSort] = useState("Recommended");
   const [origin, setOrigin] = useState<Coordinates | null>(null);
   const [locating, setLocating] = useState(false);
@@ -388,6 +572,7 @@ function Shops() {
     shops.filter(
       (s) =>
         (filter !== "Open now" || s.open) &&
+        (filter !== "Bookmarks" || !!user?.savedShops?.includes(s._id)) &&
         (s.name + " " + (s.locationAddress || s.address))
           .toLowerCase()
           .includes(query.toLowerCase()),
@@ -396,11 +581,7 @@ function Shops() {
     origin,
   );
   return (
-    <Frame
-      title="Shops"
-      subtitle="Find your printing partner in Naga."
-      tab="Shops"
-    >
+    <Frame title="Shops" tab="Shops">
       <Field
         label="Find a shop"
         placeholder="Search shops or neighborhood"
@@ -408,23 +589,59 @@ function Shops() {
         onChangeText={setQuery}
       />
       <Segments
-        values={["All shops", "Open now"]}
+        values={["Open now", "All shops", "Bookmarks"]}
         value={filter}
-        onChange={setFilter}
+        onChange={(next) =>
+          router.setParams({
+            view:
+              next === "Bookmarks"
+                ? "bookmarks"
+                : next === "All shops"
+                  ? "all"
+                  : "open",
+          })
+        }
       />
-      <Text style={s.small}>{result.length} partner shops · Naga City</Text>
-      <Segments
-        values={["Recommended", "Most Bookmarked", "Nearby"]}
-        value={sort}
-        onChange={(value) => void chooseSort(value)}
-      />
+      <View style={{ gap: 5 }}>
+        <View style={[s.between, { flexWrap: "wrap" }]}>
+          <Text accessibilityLiveRegion="polite" style={s.small}>
+            {result.length} {result.length === 1 ? "shop" : "shops"}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={"Sort shops, " + sort}
+            accessibilityState={{ expanded: sorting }}
+            aria-expanded={sorting}
+            onPress={() => setSorting(!sorting)}
+            style={[s.row, { minHeight: 44, gap: 6 }]}
+          >
+            <Feather name="sliders" size={15} color={colors.primary} />
+            <Text style={s.fieldLabel}>{sort}</Text>
+            <Feather
+              name={sorting ? "chevron-up" : "chevron-down"}
+              size={15}
+              color={colors.primary}
+            />
+          </Pressable>
+        </View>
+        {sorting && (
+          <Segments
+            values={["Recommended", "Most Bookmarked", "Nearby"]}
+            value={sort}
+            onChange={(value) => {
+              setSorting(false);
+              void chooseSort(value);
+            }}
+          />
+        )}
+      </View>
       {sort === "Nearby" && (
         <Text style={s.small}>
           {locating
             ? "Finding your location…"
             : locationNotice ||
               (origin
-                ? "Closest shops first. Shops without a map pin appear last."
+                ? "Sorted by straight-line distance. Shops without a map pin appear last."
                 : "Use your location to find the closest shops. Your location isn’t saved to your account.")}
         </Text>
       )}
@@ -432,6 +649,7 @@ function Shops() {
         <ShopCard
           key={shop._id}
           shop={shop}
+          from={view}
           distance={
             sort === "Nearby" && origin
               ? distanceKm(origin, shop.coordinates)
@@ -445,54 +663,137 @@ function Shops() {
             ? "Loading partner shops…"
             : !shops.length
               ? "No partner shops are available yet. Please check back soon."
-              : filter === "Open now" && !query.trim()
-                ? "No shops are open right now. Check All shops for contact details and hours."
-                : "No matching shops. Try another name or filter."}
+              : filter === "Bookmarks" && !query.trim()
+                ? "Your bookmarked shops appear here. Tap the bookmark on a shop to save it."
+                : filter === "Open now" && !query.trim()
+                  ? "No shops are open right now. Check All shops for contact details and hours."
+                  : "No matching shops. Try another name or filter."}
         </Text>
       )}
     </Frame>
   );
 }
-function ShopDetails({ id }: { id: string }) {
+function ShopDetails({ id, from }: { id: string; from?: string }) {
+  const s = useStyles();
   const app = useApp();
   const shop = app.shops.find((s) => s._id === id);
+  const [switchRequest, setSwitchRequest] = useState("");
+  const back =
+    from === "home"
+      ? "/home"
+      : from === "bookmarks" || from === "open" || from === "all"
+        ? { pathname: "/shops" as const, params: { view: from } }
+        : "/shops";
   if (!shop)
     return (
-      <Frame title="Shop details" tab="Shops" back="/shops">
+      <Frame
+        title="Shop details"
+        tab="Shops"
+        back={back}
+        backLabel={from === "home" ? "Print" : "Shops"}
+      >
         <Text style={s.muted}>
           {app.loading ? "Loading shop…" : "This shop is unavailable."}
         </Text>
       </Frame>
     );
+  const sameShop = app.draft.shop?._id === shop._id;
+  const hasFiles = app.draft.files.length > 0;
+  const transferKey = shop._id + ":" + app.draft.requestKey;
+  const switching = hasFiles && !sameShop && switchRequest === transferKey;
+  const ongoing = shop.queue?.ongoing ?? 0;
+  function startBooking() {
+    if (!shop?.open) return;
+    if (hasFiles && !sameShop && !switching) {
+      setSwitchRequest(transferKey);
+      return;
+    }
+    app.begin(shop, hasFiles);
+    setSwitchRequest("");
+    router.push(hasFiles ? "/options" : "/upload");
+  }
   return (
     <Frame
-      title="Shop details"
-      subtitle="A closer look at your print partner."
+      title={shop.name}
       tab="Shops"
-      back="/shops"
+      back={back}
+      backLabel={from === "home" ? "Print" : "Shops"}
+      footer={
+        <View style={{ gap: 8 }}>
+          {switching && shop.open && (
+            <Text accessibilityLiveRegion="polite" style={s.body}>
+              Move your draft from {app.draft.shop?.name} to {shop.name}? Your
+              files and settings carry over. This shop sets the price.
+            </Text>
+          )}
+          {shop.open ? (
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {switching && (
+                <View style={{ flex: 1 }}>
+                  <Button
+                    secondary
+                    title="Keep current shop"
+                    onPress={() => {
+                      setSwitchRequest("");
+                      router.push("/options");
+                    }}
+                  />
+                </View>
+              )}
+              <View style={{ flex: 1 }}>
+                <Button
+                  title={
+                    switching
+                      ? "Move draft here"
+                      : sameShop && hasFiles
+                        ? "Continue your draft"
+                        : "Print with this shop"
+                  }
+                  onPress={startBooking}
+                />
+              </View>
+            </View>
+          ) : (
+            <>
+              <Text style={s.small}>
+                Closed for new bookings. Contact the shop for existing pickups.
+              </Text>
+              <Button
+                secondary
+                title="Find an open shop"
+                onPress={() =>
+                  router.dismissTo({
+                    pathname: "/shops",
+                    params: { view: "open" },
+                  })
+                }
+              />
+            </>
+          )}
+        </View>
+      }
     >
       <View style={{ position: "relative" }}>
         <Card>
           <ShopGallery />
-          <Text style={s.cardTitle}>{shop.name}</Text>
-          <Text style={s.small}>{savedShopLabel(shop.savedCount)}</Text>
-          <Pill>{shop.open ? "Open now" : "Closed"}</Pill>
-          <Text style={s.body}>{shop.locationAddress || shop.address}</Text>
+          <View style={[s.between, { flexWrap: "wrap" }]}>
+            <Pill tone={shop.open ? "positive" : "neutral"}>
+              {shop.open ? "Open now" : "Closed"}
+            </Pill>
+            <Text style={s.small}>{savedShopLabel(shop.savedCount)}</Text>
+          </View>
           <Pair label="Hours" value={shopHours(shop.hours)} />
-          <Pair label="Contact" value={shop.contact || "Not listed"} />
+          <Pair
+            label="Print queue"
+            value={
+              ongoing + (ongoing === 1 ? " ongoing order" : " ongoing orders")
+            }
+          />
         </Card>
         <View style={{ position: "absolute", top: 28, right: 28 }}>
           <BookmarkButton shopId={shop._id} name={shop.name} />
         </View>
       </View>
-      <Card>
-        <Text style={s.cardTitle}>Current print queue</Text>
-        <Pair label="Ongoing orders" value={String(shop.queue?.ongoing ?? 0)} />
-        <Text style={s.small}>
-          Updates as the shop progresses orders. Order counts aren’t a wait-time
-          estimate; document sizes and printing settings vary.
-        </Text>
-      </Card>
       <Card>
         <Text style={s.cardTitle}>Services</Text>
         <Pair label="Black & white" value={money(shop.monoRate) + " / page"} />
@@ -500,90 +801,94 @@ function ShopDetails({ id }: { id: string }) {
         <Pair label="Paper sizes" value="A4 · Letter · Legal" />
         <Text style={s.small}>Final price shown at checkout.</Text>
       </Card>
-      <Button
-        title="Print with this shop"
-        disabled={!shop.open}
-        onPress={() => {
-          app.begin(shop);
-          router.push("/upload");
-        }}
-      />
-      {!shop.open && (
+      <Card>
+        <Text style={s.cardTitle}>Pickup location</Text>
+        <Text style={s.body}>{shop.locationAddress || shop.address}</Text>
+        <Pair label="Contact" value={shop.contact || "Not listed"} />
+        <Button
+          secondary
+          title="Where is this shop?"
+          onPress={() => {
+            void Linking.openURL(shopMapUrl(shop)).catch(() =>
+              app.setError("Couldn’t open Maps. Please try again."),
+            );
+          }}
+        />
         <Text style={s.small}>
-          This shop is closed for new bookings. Existing orders can still be
-          collected when the shop confirms they are ready. Contact the shop for
-          pickup arrangements.
+          {shop.coordinates
+            ? "Opens the storefront pin in Google Maps."
+            : "Opens an address search in Google Maps. Confirm the location with the shop."}
         </Text>
-      )}
-      <Button
-        secondary
-        title="Where is this shop?"
-        onPress={() => {
-          void Linking.openURL(shopMapUrl(shop)).catch(() =>
-            app.setError("Couldn’t open Maps. Please try again."),
-          );
-        }}
-      />
-      <Text style={s.small}>
-        Opens Google Maps
-        {shop.coordinates
-          ? " at the shop’s map pin."
-          : " using the shop’s registered address. Confirm the result with the shop if needed."}
-      </Text>
+      </Card>
     </Frame>
   );
 }
-function FileCards({ busy = false }: { busy?: boolean }) {
+function fileCount(count: number) {
+  return count + (count === 1 ? " file" : " files");
+}
+function FileRows({ busy = false }: { busy?: boolean }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const { draft, setDraft } = useApp();
   return (
     <>
-      {draft.files.map((f) => (
-        <Card key={f._id}>
-          <View style={s.row}>
-            <Art name="file" size={28} />
-            <UploadFilePreview id={f._id} name={f.name}>
-              <Text
-                style={s.body}
-                numberOfLines={2}
-                ellipsizeMode="middle"
-                accessibilityLabel={f.name}
-              >
-                {f.name}
-              </Text>
-              <Text style={s.small}>
-                {f.pages} pages · {(f.size / 1024 / 1024).toFixed(2)} MB ·
-                Uploaded
-              </Text>
-            </UploadFilePreview>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={"Remove " + f.name}
-              disabled={busy}
-              accessibilityState={{ disabled: busy }}
-              onPress={() =>
-                setDraft((d) => ({
-                  ...d,
-                  files: d.files.filter((x) => x._id !== f._id),
-                }))
-              }
-              style={{
-                padding: 10,
-                minWidth: 44,
-                minHeight: 44,
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: busy ? 0.5 : 1,
-              }}
+      {draft.files.map((f, index) => (
+        <View
+          key={f._id}
+          style={[
+            s.row,
+            {
+              paddingVertical: 4,
+              borderTopWidth: index ? 1 : 0,
+              borderColor: colors.line,
+            },
+          ]}
+        >
+          <Feather name="file-text" size={19} color={colors.primary} />
+          <UploadFilePreview id={f._id} name={f.name}>
+            <Text
+              style={s.body}
+              numberOfLines={2}
+              ellipsizeMode="middle"
+              accessibilityLabel={f.name}
             >
-              <Text style={{ color: colors.muted }}>×</Text>
-            </Pressable>
-          </View>
-        </Card>
+              {f.name}
+            </Text>
+            <Text style={s.small}>
+              {f.pages} {f.pages === 1 ? "page" : "pages"} ·{" "}
+              {Math.ceil(f.size / 1024).toLocaleString()} KB
+            </Text>
+          </UploadFilePreview>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={"Remove " + f.name}
+            disabled={busy}
+            accessibilityState={{ disabled: busy }}
+            onPress={() =>
+              setDraft((d) => ({
+                ...d,
+                files: d.files.filter((x) => x._id !== f._id),
+              }))
+            }
+            style={{
+              padding: 10,
+              minWidth: 44,
+              minHeight: 44,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: busy ? 0.5 : 1,
+            }}
+          >
+            <Feather name="x" size={18} color={colors.muted} />
+          </Pressable>
+        </View>
       ))}
     </>
   );
 }
 function Upload() {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const app = useApp(),
     { busy, run } = useAction();
   const [progress, setProgress] = useState<{
@@ -594,12 +899,11 @@ function Upload() {
     DocumentPicker.DocumentPickerAsset[]
   >([]);
   const [uploadError, setUploadError] = useState("");
-  const [complete, setComplete] = useState(false);
   if (!app.draft.shop) return <Redirect href="/shops" />;
+  const count = app.draft.files.length;
   async function upload(assets: DocumentPicker.DocumentPickerAsset[]) {
     const current = api.captureSession();
     const key = app.draft.requestKey;
-    setComplete(false);
     setUploadError("");
     const result = await uploadBatch(
       assets,
@@ -613,7 +917,7 @@ function Upload() {
     );
     setRemaining(result.remaining);
     setUploadError(result.error);
-    setComplete(!result.remaining.length);
+    setProgress(null);
   }
   async function pick() {
     const current = api.captureSession();
@@ -637,42 +941,83 @@ function Upload() {
   return (
     <Frame
       title="Upload files"
-      subtitle="01 / Files → 02 / Options → 03 / Review"
-      back="/shops"
-    >
-      <Card>
-        <View style={s.row}>
-          <Art name="shop" size={24} />
-          <Text style={s.cardTitle}>{app.draft.shop.name}</Text>
-        </View>
-        <Text style={s.small}>
-          {app.draft.shop.locationAddress || app.draft.shop.address}
-        </Text>
-      </Card>
-      <Card style={{ alignItems: "center", paddingVertical: 28 }}>
-        <Art name="upload" size={40} />
-        <Text style={s.cardTitle}>Add your documents</Text>
-        <Text style={s.small}>
-          PDF · up to 5 files · {app.maxUploadBytes / 1024 / 1024} MB each
-        </Text>
-        <View style={{ alignSelf: "stretch" }}>
+      bookingStep="Files"
+      back={{ pathname: "/shop", params: { id: app.draft.shop._id } }}
+      backLabel="Shop details"
+      subtitle={app.draft.shop.name}
+      footer={
+        count > 0 && !remaining.length ? (
           <Button
-            title="Choose files"
-            secondary
-            loading={busy}
-            onPress={() => void run(pick)}
+            title="Continue to options"
+            disabled={busy}
+            onPress={() => router.push("/options")}
           />
-        </View>
-        {busy && progress && <UploadProgress {...progress} />}
-      </Card>
+        ) : undefined
+      }
+    >
+      {count === 0 && (
+        <Card
+          tint
+          style={{
+            alignItems: "center",
+            paddingVertical: 26,
+            borderColor: colors.sage,
+            borderStyle: "dashed",
+          }}
+        >
+          <Art name="upload" size={40} />
+          <Text style={s.cardTitle}>Select your PDFs</Text>
+          <Text style={s.small}>
+            PDF · up to 5 files · {app.maxUploadBytes / 1024 / 1024} MB each
+          </Text>
+          <View style={{ alignSelf: "stretch" }}>
+            <Button
+              title={
+                remaining.length ? "Choose replacement files" : "Choose files"
+              }
+              disabled={busy}
+              onPress={() => void run(pick)}
+            />
+          </View>
+        </Card>
+      )}
+      {count > 0 && (
+        <Card>
+          <Text style={s.cardTitle}>{fileCount(count)} selected</Text>
+          {count > 1 && (
+            <Text style={s.small}>
+              Page ranges run across these PDFs in the order shown.
+            </Text>
+          )}
+          <FileRows busy={busy} />
+          {count < 5 && (
+            <>
+              <Button
+                title={
+                  remaining.length
+                    ? "Choose replacement files"
+                    : "Add more files"
+                }
+                secondary
+                disabled={busy}
+                onPress={() => void run(pick)}
+              />
+              <Text style={s.small}>
+                Up to 5 PDFs · {app.maxUploadBytes / 1024 / 1024} MB each
+              </Text>
+            </>
+          )}
+        </Card>
+      )}
+      {busy && progress && <UploadProgress {...progress} />}
       {uploadError && (
         <Card>
           <Text accessibilityRole="alert" style={{ color: colors.error }}>
             {uploadError}
           </Text>
           <Text style={s.body}>
-            {remaining.length} file{remaining.length === 1 ? "" : "s"} still
-            need uploading. Successfully uploaded files are kept below.
+            {fileCount(remaining.length)}{" "}
+            {remaining.length === 1 ? "still needs" : "still need"} uploading.
           </Text>
           {remaining.map((asset, index) => (
             <Text
@@ -687,40 +1032,32 @@ function Upload() {
           <Button
             title="Retry remaining files"
             secondary
-            loading={busy}
+            disabled={busy}
             onPress={() => void run(() => upload(remaining))}
           />
-          <Text style={s.small}>
-            If a PDF is invalid or too large, choose a corrected file instead.
-          </Text>
+          {count > 0 && (
+            <Button
+              title={"Continue with " + fileCount(count)}
+              disabled={busy}
+              onPress={() => {
+                setRemaining([]);
+                setUploadError("");
+                router.push("/options");
+              }}
+            />
+          )}
         </Card>
       )}
-      <FileCards busy={busy} />
-      <Text style={s.small}>
-        PDFs print in the order shown. Page ranges count continuously across
-        these files.
-      </Text>
-      {!!app.draft.files.length && !busy && !remaining.length && (
-        <>
-          {!busy && !remaining.length && (
-            <Pill>{complete ? "Upload complete" : "Uploaded files ready"}</Pill>
-          )}
-          <Text style={s.small}>
-            Review your file before setting print options.
-          </Text>
-        </>
-      )}
-      <Button
-        title="Continue to options"
-        disabled={!app.draft.files.length || busy || remaining.length > 0}
-        onPress={() => router.push("/options")}
-      />
     </Frame>
   );
 }
 function Options() {
-  const app = useApp(),
-    { busy, run } = useAction();
+  const s = useStyles();
+  const { colors } = useAppearance();
+  const app = useApp();
+  const { settings } = app.draft;
+  const [showFiles, setShowFiles] = useState(false);
+  const [invalidCopies, setInvalidCopies] = useState<string | null>(null);
   const [rangeMode, setRangeMode] = useState<"All" | "Custom">(() =>
     app.draft.settings.pageRange?.trim() ? "Custom" : "All",
   );
@@ -729,6 +1066,7 @@ function Options() {
   );
   const customEmpty =
     rangeMode === "Custom" && !app.draft.settings.pageRange?.trim();
+  const copiesError = invalidCopies !== null;
   const quoteBody = JSON.stringify({
     shopId: app.draft.shop?._id,
     fileIds: app.draft.files.map((f) => f._id),
@@ -737,13 +1075,17 @@ function Options() {
   });
   const quote = useQuote(
     quoteBody,
-    !!app.draft.shop && !!app.draft.files.length && !customEmpty,
+    !!app.draft.shop &&
+      !!app.draft.files.length &&
+      !customEmpty &&
+      !copiesError,
   );
   const rangeError =
     quote.status === "error" && /page|range/i.test(quote.error || "");
   if (!app.draft.shop || !app.draft.files.length)
     return <Redirect href="/upload" />;
-  const { settings } = app.draft;
+  const files = app.draft.files;
+  const pages = files.reduce((sum, file) => sum + file.pages, 0);
   const breakdown =
     quote.status === "success" && quote.quote
       ? pricingSummary(quote.quote, settings)
@@ -751,121 +1093,176 @@ function Options() {
   const change = (data: Partial<typeof settings>) => {
     app.setDraft((d) => ({ ...d, settings: { ...d.settings, ...data } }));
   };
-  const field = (label: string, props: TextInputProps) => (
-    <Field label={label} {...props} />
-  );
+  function editCopies(text: string) {
+    const value = text.trim();
+    const copies = Number(value);
+    if (!/^\d+$/.test(value) || copies < 1 || copies > 100) {
+      setInvalidCopies(text);
+      return;
+    }
+    setInvalidCopies(null);
+    change({ copies });
+  }
+  const notesHelp =
+    "Request double-sided printing, binding, or lamination here. Confirm any extra cost with the shop.";
   return (
     <Frame
       title="Print options"
-      subtitle="02 / Set up your document"
+      bookingStep="Options"
       back="/upload"
-    >
-      <FileCards />
-      <Text style={s.small}>Page range</Text>
-      <Segments
-        values={["All", "Custom"] as const}
-        value={rangeMode}
-        onChange={(mode) => {
-          setRangeMode(mode);
-          change({ pageRange: mode === "All" ? "" : customRange });
-        }}
-      />
-      {rangeMode === "Custom" ? (
-        <>
-          {field("Pages to print", {
-            value: settings.pageRange,
-            placeholder: "e.g. 1-3, 4-10",
-            onChangeText: (pageRange) => {
-              setCustomRange(pageRange);
-              change({ pageRange });
-            },
-            maxLength: 100,
-          })}
-          <Text style={s.small}>
-            Enter pages or ranges separated by commas. Number pages across files
-            in upload order
-            {` (1–${app.draft.files.reduce((sum, file) => sum + file.pages, 0)}).`}
-          </Text>
-          {customEmpty && (
+      backLabel="Files"
+      footer={
+        <View style={{ gap: 6 }}>
+          {breakdown && (
             <Text style={s.small}>
-              Enter a page range to see your estimate.
+              {breakdown.title} · {breakdown.equation}
             </Text>
           )}
-        </>
-      ) : (
-        <Text style={s.small}>Print every page in your uploaded files.</Text>
-      )}
-      {rangeError && (
-        <Text accessibilityRole="alert" style={{ color: colors.error }}>
-          {quote.error}
-        </Text>
-      )}
-      <Text style={s.small}>Paper size</Text>
-      <Segments
-        values={["A4", "Letter", "Legal"] as const}
-        value={settings.paper}
-        onChange={(paper) => change({ paper })}
-      />
-      <Card>
-        <Text style={s.small}>Copies</Text>
-        <View style={s.between}>
-          <Button
-            title="−"
-            secondary
-            disabled={settings.copies <= 1}
-            onPress={() => change({ copies: settings.copies - 1 })}
-          />
-          <Text style={[s.cardTitle, { flex: 1, textAlign: "center" }]}>
-            {settings.copies}
-          </Text>
-          <Button
-            title="+"
-            secondary
-            disabled={settings.copies >= 100}
-            onPress={() => change({ copies: settings.copies + 1 })}
-          />
+          <View style={[s.between, { flexWrap: "wrap" }]}>
+            <View style={{ flexGrow: 1, gap: 2 }}>
+              <Text style={s.small}>Estimated total</Text>
+              <Text style={s.cardTitle}>
+                {quote.status === "success" && quote.quote
+                  ? money(quote.quote.amount)
+                  : copiesError
+                    ? "Check copies"
+                    : customEmpty
+                      ? "Choose pages"
+                      : quote.status === "loading"
+                        ? "Calculating…"
+                        : "Unavailable"}
+              </Text>
+            </View>
+            <View style={{ flexGrow: 1 }}>
+              <Button
+                title="Review order"
+                disabled={quote.status !== "success"}
+                onPress={() => {
+                  if (quote.status === "success" && quote.quote) {
+                    router.push({
+                      pathname: "/review",
+                      params: { amount: String(quote.quote.amount) },
+                    });
+                  }
+                }}
+              />
+            </View>
+          </View>
         </View>
+      }
+    >
+      <Card style={{ paddingVertical: 8 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Selected documents"
+          accessibilityState={{ expanded: showFiles }}
+          aria-expanded={showFiles}
+          onPress={() => setShowFiles(!showFiles)}
+          style={[s.between, { minHeight: 44 }]}
+        >
+          <View style={[s.row, { flex: 1 }]}>
+            <Feather name="file-text" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.fieldLabel} numberOfLines={2}>
+                {files.length === 1
+                  ? files[0].name
+                  : fileCount(files.length) + " selected"}
+              </Text>
+              <Text style={s.small}>
+                {pages} {pages === 1 ? "page" : "pages"} in total
+              </Text>
+            </View>
+          </View>
+          <DisclosureChevron expanded={showFiles} />
+        </Pressable>
+        {showFiles && <FileRows />}
       </Card>
-      <Text style={s.small}>Color mode</Text>
-      <Segments
-        values={["Black & white", "Color"] as const}
-        value={settings.color}
-        onChange={(color) => change({ color })}
-      />
-      <Text style={s.small}>Print sides</Text>
-      <Segments
-        values={["Single-sided", "Double-sided"] as const}
-        value={settings.sides}
-        onChange={(sides) => change({ sides })}
-      />
-      <Field label="Finishing" value="No binding" editable={false} />
-      <Field
-        label="Notes for the shop (optional)"
-        value={app.draft.notes}
-        onChangeText={(notes) => app.setDraft((d) => ({ ...d, notes }))}
-        multiline
-        maxLength={500}
-      />
-      {breakdown && (
-        <View style={{ gap: 6 }}>
-          <Text style={[s.body, { color: colors.primary }]}>
-            {breakdown.title}
+      <Card>
+        <Text style={s.fieldLabel}>Page range</Text>
+        <Segments
+          values={["All", "Custom"] as const}
+          value={rangeMode}
+          onChange={(mode) => {
+            setRangeMode(mode);
+            change({ pageRange: mode === "All" ? "" : customRange });
+          }}
+        />
+        {rangeMode === "Custom" ? (
+          <>
+            <Field
+              label="Pages to print"
+              value={settings.pageRange}
+              placeholder="e.g. 1-3, 4-10"
+              onChangeText={(pageRange) => {
+                setCustomRange(pageRange);
+                change({ pageRange });
+              }}
+              maxLength={100}
+            />
+            <Text style={s.small}>
+              Enter pages or ranges separated by commas. Number pages across
+              files in upload order
+              {` (1–${pages}).`}
+            </Text>
+            {customEmpty && (
+              <Text style={s.small}>
+                Enter a page range to see your estimate.
+              </Text>
+            )}
+          </>
+        ) : null}
+        {rangeError && (
+          <Text accessibilityRole="alert" style={{ color: colors.error }}>
+            {quote.error}
           </Text>
-          <Text style={s.small}>{breakdown.equation}</Text>
-        </View>
-      )}
-      <Pair
-        label="Estimated total"
-        value={
-          quote.status === "success" && quote.quote
-            ? money(quote.quote.amount)
-            : customEmpty
-              ? "Choose pages"
-              : quote.status === "loading"
-                ? "Calculating…"
-                : "Estimate unavailable"
-        }
-      />
+        )}
+      </Card>
+      <Card>
+        <Text style={s.fieldLabel}>Paper size</Text>
+        <Segments
+          values={["A4", "Letter", "Legal"] as const}
+          value={settings.paper}
+          onChange={(paper) => change({ paper })}
+        />
+        <View style={s.rule} />
+        <Text style={s.fieldLabel}>Color mode</Text>
+        <Segments
+          values={["Black & white", "Color"] as const}
+          value={settings.color}
+          onChange={(color) => change({ color })}
+        />
+        <View style={s.rule} />
+        <Field
+          label="Copies"
+          value={invalidCopies ?? String(settings.copies)}
+          onChangeText={editCopies}
+          inputMode="numeric"
+          selectTextOnFocus
+          accessibilityHint="Enter 1 to 100 copies."
+          placeholder="1–100"
+          style={copiesError ? { borderColor: colors.error } : undefined}
+        />
+        {copiesError && (
+          <Text
+            accessibilityRole="alert"
+            style={[s.small, { color: colors.error }]}
+          >
+            Enter a whole number from 1 to 100.
+          </Text>
+        )}
+      </Card>
+      <View style={{ gap: 6 }}>
+        <Field
+          label="Notes for the shop (optional)"
+          accessibilityHint={notesHelp}
+          value={app.draft.notes}
+          onChangeText={(notes) => app.setDraft((d) => ({ ...d, notes }))}
+          multiline
+          maxLength={500}
+        />
+        <Text style={s.small}>{notesHelp}</Text>
+      </View>
+
       {quote.status === "error" && (
         <Card>
           {!rangeError && (
@@ -874,26 +1271,26 @@ function Options() {
             </Text>
           )}
           <Button title="Retry estimate" secondary onPress={quote.retry} />
+          {!rangeError && (
+            <LinkText
+              onPress={() =>
+                router.navigate({
+                  pathname: "/shops",
+                  params: { view: "open" },
+                })
+              }
+            >
+              Choose another shop
+            </LinkText>
+          )}
         </Card>
       )}
-      <Button
-        title="Review order"
-        loading={busy}
-        disabled={quote.status !== "success"}
-        onPress={() =>
-          void run(async () => {
-            if (!quote.quote || quote.status !== "success") return;
-            router.push({
-              pathname: "/review",
-              params: { amount: String(quote.quote.amount) },
-            });
-          })
-        }
-      />
     </Frame>
   );
 }
 function Review({ amount }: { amount: string }) {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const app = useApp(),
     { busy, run } = useAction();
   const [reviewedAmount, setReviewedAmount] = useState(Number(amount) || 0);
@@ -906,105 +1303,165 @@ function Review({ amount }: { amount: string }) {
       <Redirect href="/shops" />
     );
   const { draft } = app;
-  const pages = draft.files.reduce((n, f) => n + f.pages, 0);
+  if (!amount.trim() || !Number.isFinite(Number(amount)) || Number(amount) < 0)
+    return <Redirect href="/options" />;
+  const shop = app.draft.shop;
+  async function submit() {
+    const current = api.captureSession();
+    const result = await placeBooking(draft, reviewedAmount, (body) =>
+      api.request<Order>("/orders", { method: "POST", body }),
+    );
+    if (!current()) return;
+    if (!result.order) {
+      setReviewedAmount(result.amount);
+      setPriceNotice(
+        "The shop updated its rates. Check the new total and confirm to place your order.",
+      );
+      return;
+    }
+    const order = result.order;
+    setSubmitted(order._id);
+    app.completeBooking(order, draft.requestKey);
+    void app.refresh();
+    router.replace({ pathname: "/order", params: { id: order._id } });
+  }
   return (
     <Frame
       title="Review order"
-      subtitle="03 / One last check before printing"
+      bookingStep="Review"
       back="/options"
+      backLabel="Options"
+      footer={
+        <View style={{ gap: 8 }}>
+          {!!priceNotice && (
+            <Text accessibilityRole="alert" style={s.body}>
+              {priceNotice}
+            </Text>
+          )}
+          <View style={[s.between, { flexWrap: "wrap" }]}>
+            <View style={{ flexGrow: 1, gap: 2 }}>
+              <Text style={s.small}>Cash due at pickup</Text>
+              <Text style={s.cardTitle}>{money(reviewedAmount)}</Text>
+            </View>
+            <View style={{ flexGrow: 1 }}>
+              <Button
+                title={priceNotice ? "Confirm new total" : "Place order"}
+                loading={busy}
+                onPress={() => void run(submit)}
+              />
+            </View>
+          </View>
+        </View>
+      }
     >
       <Card>
-        <Text style={s.cardTitle}>{draft.shop!.name}</Text>
-        <Pair label="Documents" value={pages + " pages"} />
-        <Pair
-          label="Page range"
-          value={draft.settings.pageRange || "All pages"}
-        />
-        <Pair
-          label="Print setup"
-          value={draft.settings.color + " · " + draft.settings.paper}
-        />
-        <Pair
-          label="Sides / copies"
-          value={draft.settings.sides + " · " + draft.settings.copies}
-        />
-        <View style={{ height: 1, backgroundColor: colors.line }} />
-        <Pair label="Total" value={money(reviewedAmount)} />
-        <LinkText onPress={() => router.push("/options")}>
-          Edit file or print options →
-        </LinkText>
-      </Card>
-      {priceNotice ? (
-        <Text accessibilityRole="alert" style={s.body}>
-          {priceNotice}
-        </Text>
-      ) : null}
-      <Card tint>
-        <Text style={s.cardTitle}>Pay on pickup</Text>
-        <Text style={s.body}>
-          Pay {money(reviewedAmount)} in cash at the shop when you collect your
-          prints. No online payment is needed.
-        </Text>
-      </Card>
-      <Button
-        title="Place order · Pay on pickup"
-        loading={busy}
-        onPress={() => {
-          void run(async () => {
-            const current = api.captureSession();
-            const result = await placeBooking(draft, reviewedAmount, (body) =>
-              api.request<Order>("/orders", { method: "POST", body }),
-            );
-            if (!current()) return;
-            if (!result.order) {
-              setReviewedAmount(result.amount);
-              setPriceNotice(
-                "The shop updated its rates. Review the new total and press Place order again to confirm.",
-              );
-              return;
+        <View style={s.between}>
+          <Text style={s.fieldLabel}>Pickup shop</Text>
+          <LinkText
+            onPress={() =>
+              router.navigate({ pathname: "/shops", params: { view: "open" } })
             }
-            const order = result.order;
-            setSubmitted(order._id);
-            app.completeBooking(order, draft.requestKey);
-            void app.refresh();
-            router.replace({ pathname: "/order", params: { id: order._id } });
-          });
-        }}
-      />
+          >
+            Change shop
+          </LinkText>
+        </View>
+        <Text style={s.cardTitle}>{shop.name}</Text>
+        <Text style={s.body}>{shop.locationAddress || shop.address}</Text>
+      </Card>
+      <Card>
+        <View style={s.between}>
+          <Text style={s.cardTitle}>Documents</Text>
+          <LinkText onPress={() => router.dismissTo("/upload")}>
+            Edit files
+          </LinkText>
+        </View>
+        {draft.files.map((file) => (
+          <View key={file._id} style={s.row}>
+            <Feather name="file-text" size={18} color={colors.primary} />
+            <Text style={[s.body, { flex: 1 }]}>{file.name}</Text>
+            <Text style={s.small}>
+              {file.pages} {file.pages === 1 ? "page" : "pages"}
+            </Text>
+          </View>
+        ))}
+      </Card>
+      <Card>
+        <View style={s.between}>
+          <Text style={s.cardTitle}>Print settings</Text>
+          <LinkText onPress={() => router.dismissTo("/options")}>
+            Edit options
+          </LinkText>
+        </View>
+        <Pair
+          label="Paper and color"
+          value={draft.settings.paper + " · " + draft.settings.color}
+        />
+        <Pair label="Pages" value={draft.settings.pageRange || "All pages"} />
+        <Pair label="Copies" value={String(draft.settings.copies)} />
+        {!!draft.notes.trim() && (
+          <View style={{ gap: 4 }}>
+            <Text style={s.fieldLabel}>Notes for the shop</Text>
+            <Text style={s.body}>{draft.notes.trim()}</Text>
+          </View>
+        )}
+      </Card>
     </Frame>
   );
 }
-function Orders() {
-  const { orders } = useApp();
-  const [filter, setFilter] = useState("Active");
+function Orders({ view }: { view?: string }) {
+  const s = useStyles();
+  const { orders, loading } = useApp();
+  const filter = view === "history" ? "History" : "Active";
   const list = orders.filter((o) =>
     filter === "Active" ? isActiveOrder(o) : isTerminalOrder(o),
   );
   return (
-    <Frame title="Orders" subtitle="Track your prints and pickup." tab="Orders">
+    <Frame title="Orders" tab="Orders">
       <Segments
         values={["Active", "History"]}
         value={filter}
-        onChange={setFilter}
+        onChange={(next) =>
+          router.setParams({ view: next === "History" ? "history" : undefined })
+        }
       />
       {list.map((o) => (
-        <OrderCard key={o._id} order={o} />
+        <OrderCard
+          key={o._id}
+          order={o}
+          from={filter === "History" ? "history" : "active"}
+        />
       ))}
-      {!list.length && (
+      {!list.length && loading && <Text style={s.small}>Loading orders…</Text>}
+      {!list.length && !loading && (
         <Card>
           <Text style={s.cardTitle}>
             {filter === "Active" ? "No active orders" : "No order history yet"}
           </Text>
-          <Text style={s.muted}>Your print orders will appear here.</Text>
-          <LinkText onPress={() => router.push("/shops")}>
-            Browse partner shops →
-          </LinkText>
+          <Text style={s.muted}>
+            {filter === "Active"
+              ? "Choose a shop to start a print order."
+              : "Collected, cancelled and rejected orders appear here."}
+          </Text>
+          {filter === "Active" && (
+            <LinkText onPress={() => router.navigate("/shops")}>
+              Browse shops →
+            </LinkText>
+          )}
         </Card>
       )}
     </Frame>
   );
 }
-function OrderDetails({ id }: { id: string }) {
+function OrderDetails({ id, from }: { id: string; from?: string }) {
+  const s = useStyles();
+  const back =
+    from === "home"
+      ? "/home"
+      : from === "history"
+        ? { pathname: "/orders" as const, params: { view: "history" } }
+        : "/orders";
+  const backLabel =
+    from === "home" ? "Print" : from === "history" ? "History" : "Orders";
   const app = useApp(),
     { busy, run } = useAction();
   const [now, setNow] = useState(Date.now);
@@ -1019,7 +1476,7 @@ function OrderDetails({ id }: { id: string }) {
   const order = app.orders.find((o) => o._id === id);
   if (!order)
     return (
-      <Frame title="Order" tab="Orders" back="/orders">
+      <Frame title="Order" tab="Orders" back={back} backLabel={backLabel}>
         <Text style={s.muted}>
           {app.loading
             ? "Loading order…"
@@ -1032,7 +1489,8 @@ function OrderDetails({ id }: { id: string }) {
       title={stage(order.status)}
       subtitle={orderCode(order._id) + " · " + order.shop.name}
       tab="Orders"
-      back="/orders"
+      back={back}
+      backLabel={backLabel}
     >
       {isCancelledOrRejected(order) && <OrderOutcome order={order} />}
       {order.status === "Queued" && (
@@ -1042,7 +1500,7 @@ function OrderDetails({ id }: { id: string }) {
       )}
       {order.readyAt && order.status === "Ready for pickup" && (
         <Card tint>
-          <Text style={s.cardTitle}>Ready for pickup</Text>
+          <Text style={s.cardTitle}>Pickup code</Text>
           <Text style={s.body}>
             Your prints are ready. Show this code at the shop.
           </Text>
@@ -1070,29 +1528,39 @@ function OrderDetails({ id }: { id: string }) {
         </Card>
       )}
       <Card>
-        <Pair
-          label="Payment"
-          value={
-            isCancelledOrRejected(order)
-              ? "No payment due"
-              : order.paymentStatus === "paid"
-                ? "Paid"
-                : "Pay on pickup"
-          }
-        />
+        <Text style={s.cardTitle}>{order.shop.name}</Text>
         <Text style={s.body}>
-          {order.shop.name} · {order.shop.locationAddress || order.shop.address}
+          {order.shop.locationAddress || order.shop.address}
         </Text>
+        {order.status === "Ready for pickup" && (
+          <LinkText
+            onPress={() => {
+              void Linking.openURL(shopMapUrl(order.shop)).catch(() =>
+                app.setError("Couldn’t open Maps. Please try again."),
+              );
+            }}
+          >
+            Get pickup directions →
+          </LinkText>
+        )}
         {order.shop.contact && (
           <LinkText
             onPress={() => {
-              void Linking.openURL("tel:" + order.shop.contact);
+              void Linking.openURL("tel:" + order.shop.contact).catch(() =>
+                app.setError(
+                  "Couldn’t open the dialer. The shop number is " +
+                    order.shop.contact +
+                    ".",
+                ),
+              );
             }}
           >
             Contact shop
           </LinkText>
         )}
-        <Text style={s.cardTitle}>Documents</Text>
+      </Card>
+      <Card>
+        <Text style={s.cardTitle}>Order summary</Text>
         {order.files.map((file) => (
           <Text key={file.upload} style={s.body}>
             {file.name}
@@ -1102,16 +1570,20 @@ function OrderDetails({ id }: { id: string }) {
           label="Print setup"
           value={order.settings.paper + " · " + order.settings.color}
         />
-        <Pair
-          label="Copies / sides"
-          value={order.settings.copies + " · " + order.settings.sides}
-        />
+        <Pair label="Copies" value={String(order.settings.copies)} />
+        {order.settings.sides === "Double-sided" && (
+          <Pair label="Sides" value={order.settings.sides} />
+        )}
         {order.settings.pageRange && (
           <Pair label="Page range" value={order.settings.pageRange} />
         )}
         <Pair
           label={
-            isCancelledOrRejected(order) ? "Original quoted total" : "Total"
+            isCancelledOrRejected(order)
+              ? "Original quoted total"
+              : order.paymentStatus === "paid"
+                ? "Amount paid"
+                : "Due on pickup"
           }
           value={money(order.amount)}
         />
@@ -1174,6 +1646,8 @@ function OrderDetails({ id }: { id: string }) {
   );
 }
 function Profile() {
+  const s = useStyles();
+  const { colors } = useAppearance();
   const app = useApp();
   const { busy: savingDetails, run: saveDetails } = useAction();
   const { busy: savingSettings, run: saveSettings } = useAction();
@@ -1183,8 +1657,7 @@ function Profile() {
   const [section, setSection] = useState(""),
     [name, setName] = useState(user.name),
     [phone, setPhone] = useState(user.phone || ""),
-    [paper, setPaper] = useState(user.defaultPaper),
-    [quiet, setQuiet] = useState(user.reducedMotion);
+    [paper, setPaper] = useState(user.defaultPaper);
   const [saved, setSaved] = useState("");
   function toggleSection(next: string) {
     const target = section === next ? "" : next;
@@ -1210,6 +1683,10 @@ function Profile() {
           />
           <Button
             title="Save details"
+            disabled={
+              !name.trim() ||
+              (name.trim() === user.name && phone === (user.phone || ""))
+            }
             loading={savingDetails}
             onPress={() =>
               void saveDetails(async () => {
@@ -1222,20 +1699,7 @@ function Profile() {
           />
         </View>
       )}
-      {section === "Bookmarks" && (
-        <View style={{ gap: 16 }}>
-          {app.shops
-            .filter((s) => user.savedShops?.includes(s._id))
-            .map((s) => (
-              <ShopCard key={s._id} shop={s} compact />
-            ))}
-          {!user.savedShops?.length && (
-            <Text style={s.muted}>
-              Tap the bookmark icon on a shop to find it here.
-            </Text>
-          )}
-        </View>
-      )}
+
       {section === "Notifications" && (
         <View style={{ gap: 16 }}>
           <Text style={s.body}>
@@ -1254,21 +1718,7 @@ function Profile() {
           )}
         </View>
       )}
-      {section === "Payment history" && (
-        <View style={{ gap: 16 }}>
-          {app.orders.length ? (
-            app.orders.map((o) => (
-              <Pair
-                key={o._id}
-                label={orderCode(o._id)}
-                value={money(o.amount) + " · " + paymentLabel(o)}
-              />
-            ))
-          ) : (
-            <Text style={s.muted}>No payments yet.</Text>
-          )}
-        </View>
-      )}
+
       {section === "Printing preferences" && (
         <View style={{ gap: 16 }}>
           <Text style={s.cardTitle}>Default paper</Text>
@@ -1277,30 +1727,20 @@ function Profile() {
             value={paper}
             onChange={setPaper}
           />
-          <View style={s.between}>
-            <Text style={s.body}>Reduce motion</Text>
-            <Switch
-              accessibilityLabel="Reduce motion"
-              value={quiet}
-              onValueChange={setQuiet}
-              trackColor={{ true: colors.primary, false: colors.line }}
-            />
-          </View>
           <Button
             title="Save settings"
+            disabled={paper === user.defaultPaper}
             loading={savingSettings}
             onPress={() =>
               void saveSettings(async () => {
-                await app.updateProfile({
-                  defaultPaper: paper,
-                  reducedMotion: quiet,
-                });
+                await app.updateProfile({ defaultPaper: paper });
                 setSaved("Settings saved.");
               })
             }
           />
         </View>
       )}
+      {section === "Appearance" && <AppearanceSettings />}
       {section === "Help & support" && (
         <View style={{ gap: 16 }}>
           <Text style={s.cardTitle}>Printing with PaPrint</Text>
@@ -1309,8 +1749,8 @@ function Profile() {
             place an order. Pay the shop when you collect your prints.
           </Text>
           <Text style={s.body}>
-            The shop updates Preparing, Printing, and Done. Your pickup code
-            appears when your prints are ready.
+            Track your order from Preparing to Printing to Ready for pickup.
+            Your pickup code appears when your prints are ready.
           </Text>
           <Text style={s.small}>
             For an order issue, use the contact details on your shop’s page.
@@ -1323,7 +1763,8 @@ function Profile() {
           <Text style={s.body}>
             Account details, preferences and orders are stored for this app.
             Your PDFs are private to your account and the assigned shop. Owner
-            registration documents are private to that owner.
+            registration documents are available to the shop owner and
+            authorized reviewers.
           </Text>
           <Text style={s.small}>
             This is an MVP preview. Formal service terms, retention rules and
@@ -1342,18 +1783,23 @@ function Profile() {
       tab="Profile"
     >
       <Card>
-        <View style={[s.avatar, { borderRadius: 28 }]}>
-          <Text
-            style={{ color: colors.primary, fontWeight: "700", fontSize: 18 }}
-          >
-            {initials}
-          </Text>
+        <View style={[s.row, { gap: 14 }]}>
+          <View style={[s.avatar, { borderRadius: 18 }]}>
+            <Text
+              style={{ color: colors.primary, fontWeight: "700", fontSize: 18 }}
+            >
+              {initials}
+            </Text>
+          </View>
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text style={s.cardTitle}>{user.name}</Text>
+            <Text style={s.small}>
+              {user.email}
+              {user.phone ? " · " + user.phone : ""}
+            </Text>
+          </View>
         </View>
-        <Text style={s.cardTitle}>{user.name}</Text>
-        <Text style={s.small}>
-          {user.email}
-          {user.phone ? " · " + user.phone : ""}
-        </Text>
+        <View style={s.rule} />
         <LinkText onPress={() => toggleSection("Edit personal details")}>
           {section === "Edit personal details"
             ? "Hide personal details ↑"
@@ -1362,27 +1808,36 @@ function Profile() {
         {section === "Edit personal details" && sectionContent}
       </Card>
       <Card>
-        {[
-          "Bookmarks",
-          "Notifications",
-          "Payment history",
-          "Printing preferences",
-          "Help & support",
-          "Terms & privacy",
-        ].map((label) => (
+        {(
+          [
+            ["Appearance", "moon"],
+            ["Notifications", "bell"],
+            ["Printing preferences", "sliders"],
+            ["Help & support", "help-circle"],
+            ["Terms & privacy", "shield"],
+          ] as const
+        ).map(([label, icon]) => (
           <View key={label} style={{ gap: 8 }}>
             <Pressable
               accessibilityLabel={label}
               accessibilityRole="button"
               accessibilityState={{ expanded: section === label }}
+              aria-expanded={section === label}
               onPress={() => toggleSection(label)}
               style={[s.between, { minHeight: 44 }]}
             >
-              <Text
-                style={[s.body, section === label && { color: colors.primary }]}
-              >
-                {label}
-              </Text>
+              <View style={[s.row, { flex: 1, gap: 12 }]}>
+                <Feather name={icon} size={17} color={colors.sage} />
+                <Text
+                  style={[
+                    s.body,
+                    { flexShrink: 1 },
+                    section === label && { color: colors.primary },
+                  ]}
+                >
+                  {label}
+                </Text>
+              </View>
               <DisclosureChevron expanded={section === label} />
             </Pressable>
             {section === label && sectionContent}
@@ -1418,6 +1873,7 @@ function AccountRoute() {
     amount?: string;
     view?: string;
     status?: string;
+    from?: string;
   }>();
   const app = useApp();
   const screen = typeof params.page === "string" ? params.page : "home";
@@ -1453,9 +1909,9 @@ function AccountRoute() {
     case "home":
       return <Home />;
     case "shops":
-      return <Shops />;
+      return <Shops view={params.view} />;
     case "shop":
-      return <ShopDetails id={params.id || ""} />;
+      return <ShopDetails id={params.id || ""} from={params.from} />;
     case "upload":
       return <Upload />;
     case "options":
@@ -1472,9 +1928,9 @@ function AccountRoute() {
         />
       );
     case "orders":
-      return <Orders />;
+      return <Orders view={params.view} />;
     case "order":
-      return <OrderDetails id={params.id || ""} />;
+      return <OrderDetails id={params.id || ""} from={params.from} />;
     case "profile":
       return <Profile />;
     case "workspace":

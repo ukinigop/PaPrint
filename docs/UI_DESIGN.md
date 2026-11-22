@@ -1,23 +1,35 @@
-# PaPrint Figma implementation
+# PaPrint interface
 
-Source: [PaPrint wireframes](https://www.figma.com/design/Em6FqXJhr0zs7YrR7uX3vd), from the conversation **Create printing app wireframes**, including the later splash screen and logo.
+The original [PaPrint wireframes](https://www.figma.com/design/Em6FqXJhr0zs7YrR7uX3vd) supply the brand and navigation foundation. The local print-studio redesign uses warm paper surfaces, green ink, sample studio photography, and receipt-like order summaries.
 
 ## Design
 
-- Surface/background: #E9EEF2.
-- Primary teal: #276A68; selected/tint: #DCEAE7.
-- Text: #233E48; supporting text: #637A84; divider: #CCD7DE.
-- Raised surfaces: paired 6px shadows, 14px blur, dark #9CADBA5C and light #FFFFFFF2.
-- Inset inputs use the same paired shadows. Older Android versions use elevation/border fallbacks.
-- Manrope Medium, SemiBold, Bold are bundled locally. Headings 26px, section titles 18px, body 14px, captions/navigation 11–12px.
-- 24px mobile gutters, 20px card radius/padding, 16px controls, minimum 44px hit targets.
-- Customer width adapts to phones; owner workspace uses a desktop sidebar at 960px and above, with a mobile navigation row below that.
+- Use paper `#F8F7F1` for the canvas, ivory `#FFFEFA` for forms and cards, and deep green `#184936` for primary actions. Vermilion `#CA4426` marks small accents. Statuses include a text label.
+- DM Sans Bold sets the headings. Manrope sets controls and body text. Both font families ship with the app.
+- Customer screens use a single column up to 480 px wide with a persistent bottom tab bar on customer routes. Checkout shows Files, Options, and Review above each step.
+- Sign-in and signup use a split layout from 860 px. The owner workspace switches from horizontal navigation to a sidebar at 960 px. Admin registration lists and detail panels sit side by side on wide screens.
+- Show the full original PaPrint logo during loading and authentication, and the icon inside the app.
+
+## Studio artwork
+
+The built-in image generator produced four local JPEGs. Each shop image is labeled as a sample. The gallery uses the same samples for every shop until actual partner images are available.
+
+| Asset | Art direction |
+| --- | --- |
+| [printer.jpg](../mobile/assets/studio/printer.jpg) | Editorial product still life of a petroleum-green desktop printer with an ivory top, a vermilion control, and a geometric print on a pistachio tabletop. |
+| [storefront.jpg](../mobile/assets/studio/storefront.jpg) | A street-level Philippine copy shop with a green-painted frame, a faded print shop sign, a potted plant, and an orange stool in morning light. |
+| [counter.jpg](../mobile/assets/studio/counter.jpg) | A neighborhood pickup counter with warm paper, a leafy plant, an orange stool, and natural window light. |
+| [print-room.jpg](../mobile/assets/studio/print-room.jpg) | An off-white copier and reams of paper on a plywood desk beside green window trim. |
 
 ## Implemented screens
 
-Login/signup support customer and shop-owner accounts. A real loading screen appears while fonts/session restore. Home, Shops, shop details, upload, options, review with cash-on-pickup payment, Orders, Preparing/Printing/Done/Collected tracking, and Profile follow the Figma hierarchy.
+Customers start or resume a booking from Print. A ready order puts the pickup code within reach. Shops handles discovery and bookmarks, while Orders handles active orders, receipts and history. Profile holds personal details, printing preferences, appearance and help.
 
-Shop owners have business details, private registration PDF upload, review/submit, status overview, searchable order queue, production details/downloads, payment confirmation, and collection controls. Profile supports personal details, saved shops, notifications, payment/order history, paper preference, reduced motion, help, privacy notice, and sign out. Owners can switch to the customer app and back from Profile.
+Light and dark themes share their typography and layout. Appearance follows the device by default, with a manual choice saved on the device. Owners can reach Appearance through their account preferences, and admins can open it from the dashboard header.
+
+Checkout has three steps. Upload lets customers preview their PDFs, Options sets pages and copies, and Review confirms the shop and cash due. Switching shops with an unfinished upload asks whether to move it and recalculates the quote. The next action stays beside its total on phone screens and joins the scrollable content when vertical space is tight.
+
+Owners start in one searchable order queue. Shop profile holds business and operating details. Each order shows the next available fulfillment action through printing, pickup payment and collection. Owners can switch to the customer app and back from Profile. Administrators review registrations and location changes in separate queues, with a detail screen on phones and a split view on desktop.
 
 Exact Figma SVGs are bundled in mobile/assets/figma; no temporary remote Figma asset URL is used at runtime. Controls reuse shared design components and tokens. The later logo concept supplies the folded-paper printer mark. Tabs switch immediately; buttons, true upload progress, splash dots, and the Printing state use restrained motion and respect reduced-motion preferences.
 
@@ -33,4 +45,4 @@ Administrators review submitted partners in a responsive approval dashboard; own
 
 Backend integration tests cover account persistence, privacy, scoped owner access, registration gating, payment-before-collection, real page-range pricing, GCash rejection, private GridFS downloads, pickup notifications, and idempotent bookings. Frontend typecheck, lint, and web/Android exports are required. Browser QA checks phone and desktop layouts and the customer/owner order flow. Physical-device motion, hardware keyboard behavior, and background push delivery still require device testing.
 
-Frontend session, quote, upload-retry, and booking-state regression checks run with `npm run test:frontend`. See [customer flow QA](CUSTOMER_FLOW_QA.md) for the current behavior and manual acceptance checklist. The shop list omits distance estimates and the Nearest filter until reliable location data exists.
+Frontend session, quote, upload-retry, and booking-state regression checks run with `npm run test:frontend`. See [customer flow QA](CUSTOMER_FLOW_QA.md) for the manual acceptance checklist and [shop discovery](SHOP_DISCOVERY.md) for sorting and location behavior.

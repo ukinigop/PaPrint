@@ -1,5 +1,6 @@
 import React from "react";
 import { Image } from "expo-image";
+import { useAppearance } from "./Appearance";
 
 // Original artwork exported from page 11 of the team's Canva design.
 const artwork = {
@@ -16,11 +17,15 @@ export function Brand({
   variant?: keyof typeof artwork;
   width?: number;
 }) {
+  const { scheme, colors } = useAppearance();
   return (
     <Image
       source={artwork[variant]}
       style={{ width, height: width * ratios[variant], flexShrink: 0 }}
       contentFit="contain"
+      tintColor={
+        scheme === "dark" && variant !== "reversed" ? colors.primary : undefined
+      }
       accessible
       alt="PaPrint"
       accessibilityLabel="PaPrint"
