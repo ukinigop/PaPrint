@@ -23,28 +23,52 @@ export function installAdmin(app, { auth, fileStorage }) {
   app.use("/api/admin", auth, admin);
   const registration = async (req, res, next) => {
     if (!/^[a-f\d]{24}$/i.test(req.params.id)) throw fail(400, "Invalid shop.");
-    req.shop = await Shop.findById(req.params.id);
+    req.shop = await Shop.findOne({ _id: req.params.id, deletedAt: null });
     if (!req.shop) throw fail(404, "Shop not found.");
     next();
   };
   app.get("/api/admin/shops", async (req, res) => {
     const status = z
-      .enum(["submitted", "approved", "rejected"])
+      .enum(["submitted", "approved", "rejected", "draft"])
       .safeParse(req.query.status || "submitted");
     if (!status.success) throw fail(400, "Invalid registration status.");
     res.json(
       (
-        await Shop.find({ registrationStatus: status.data }).sort({ _id: -1 })
+        await Shop.find({
+          deletedAt: null,
+          ...(status.data === "approved"
+            ? {
+                $or: [
+                  { registrationStatus: "approved" },
+                  { registrationStatus: { $exists: false } },
+                ],
+              }
+            : { registrationStatus: status.data }),
+        }).sort({ _id: -1 })
       ).map(safeRegistration),
     );
   });
   app.get("/api/admin/shops/:id", registration, (req, res) =>
     res.json(safeRegistration(req.shop)),
   );
+  app.delete("/api/admin/shops/:id", registration, async (req, res) => {
+    // Keep the shop reference and owner linkage for orders already placed.
+    await Shop.updateOne(
+      { _id: req.shop.id, deletedAt: null },
+      {
+        $set: { deletedAt: new Date(), deletedBy: req.user.id, open: false },
+        $inc: { __v: 1 },
+      },
+    );
+    res.json({ ok: true });
+  });
   app.get("/api/admin/location-requests", async (req, res) => {
     res.json(
       (
-        await Shop.find({ "locationRequest.status": "pending" }).sort({
+        await Shop.find({
+          deletedAt: null,
+          "locationRequest.status": "pending",
+        }).sort({
           "locationRequest.requestedAt": 1,
         })
       ).map(safeRegistration),
@@ -82,6 +106,7 @@ export function installAdmin(app, { auth, fileStorage }) {
       const updated = await Shop.findOneAndUpdate(
         {
           _id: req.shop.id,
+          deletedAt: null,
           registrationStatus: "approved",
           "locationRequest.requestId": requestId,
           "locationRequest.status": "pending",
@@ -175,7 +200,12 @@ export function installAdmin(app, { auth, fileStorage }) {
           }
         : { submissionVersion };
     const updated = await Shop.findOneAndUpdate(
-      { _id: req.shop.id, registrationStatus: "submitted", ...versionFilter },
+      {
+        _id: req.shop.id,
+        deletedAt: null,
+        registrationStatus: "submitted",
+        ...versionFilter,
+      },
       {
         $set: {
           registrationStatus: decision,

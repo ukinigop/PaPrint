@@ -65,6 +65,8 @@ export const Shop = model(
       estimate: String,
       rating: Number,
       open: Boolean,
+      deletedAt: Date,
+      deletedBy: { type: Schema.Types.ObjectId, ref: "User", select: false },
       accent: String,
       monoRate: Number,
       colorRate: Number,

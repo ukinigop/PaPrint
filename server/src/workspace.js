@@ -43,6 +43,14 @@ export function installWorkspace(
     if (!req.shop) throw fail(404, "Register your business first.");
     next();
   };
+  const editable = (req, res, next) => {
+    if (req.shop?.deletedAt)
+      throw fail(
+        409,
+        "PaPrint removed this shop. You can still fulfill existing orders.",
+      );
+    next();
+  };
   const approved = (req, res, next) => {
     if (req.shop.registrationStatus !== "approved")
       throw fail(403, "Your shop must be approved before accepting orders.");
@@ -52,7 +60,7 @@ export function installWorkspace(
   app.get("/api/workspace", auth, owner, (req, res) =>
     res.json(safe(req.shop)),
   );
-  app.put("/api/workspace", auth, owner, async (req, res) => {
+  app.put("/api/workspace", auth, owner, editable, async (req, res) => {
     const parsed = schema.safeParse(req.body);
     if (!parsed.success)
       throw fail(400, "Fill in the business details and valid printing rates.");
@@ -86,6 +94,7 @@ export function installWorkspace(
     owner,
     registered,
     approved,
+    editable,
     async (req, res) => {
       const parsed = schema
         .pick({ hours: true, contact: true, monoRate: true, colorRate: true })
@@ -105,6 +114,7 @@ export function installWorkspace(
         {
           _id: req.shop.id,
           owner: req.user.id,
+          deletedAt: null,
           registrationStatus: "approved",
           ...(expectedVersion === undefined
             ? {}
@@ -129,6 +139,7 @@ export function installWorkspace(
     owner,
     registered,
     approved,
+    editable,
     async (req, res) => {
       const parsed = locationSchema.safeParse(req.body);
       if (!parsed.success)
@@ -148,6 +159,7 @@ export function installWorkspace(
         {
           _id: req.shop.id,
           owner: req.user.id,
+          deletedAt: null,
           registrationStatus: "approved",
           "locationRequest.status": { $ne: "pending" },
         },
@@ -167,6 +179,7 @@ export function installWorkspace(
     auth,
     owner,
     registered,
+    editable,
     async (req, res) => {
       if (!["draft", "rejected"].includes(req.shop.registrationStatus))
         throw fail(409, "Registration documents are locked.");
@@ -190,6 +203,7 @@ export function installWorkspace(
     auth,
     owner,
     registered,
+    editable,
     upload.array("files", 3),
     async (req, res) => {
       if (!["draft", "rejected"].includes(req.shop.registrationStatus))
@@ -235,6 +249,7 @@ export function installWorkspace(
     auth,
     owner,
     registered,
+    editable,
     async (req, res) => {
       if (!["draft", "rejected"].includes(req.shop.registrationStatus))
         throw fail(409, "Registration is already submitted.");

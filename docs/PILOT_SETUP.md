@@ -27,6 +27,7 @@ An owner saves business details, uploads three valid registration PDFs, and subm
 - Decisions record reviewer, time, and submission version. Duplicate or stale decisions return a conflict; refresh before reviewing again.
 - Approved identity details and registration documents are locked. Owners can change hours, contact number, per-page rates, and open/closed status.
 - Closing prevents new quotes/bookings, while existing orders can still be downloaded, printed, paid and collected.
+- **Delete shop** is available from the registration details, including Draft. Confirm to remove the shop from discovery and stop new bookings. PaPrint retains the owner account, existing orders, and stored registration records.
 
 The admin dashboard uses normal account login and checks the current database role on every protected admin request. Customers, owners, guest sessions and PIN sessions cannot use admin routes. Private storage locations are never returned.
 
@@ -56,8 +57,9 @@ Legacy sessions require an approved shop. `POST /api/orders/:id/payment` confirm
 
 | Method and route                                 | Access and purpose                                           |
 | ------------------------------------------------ | ------------------------------------------------------------ |
-| `GET /api/admin/shops?status=submitted`          | Admin list; also accepts approved/rejected                   |
+| `GET /api/admin/shops?status=submitted`          | Admin list; also accepts approved/rejected/draft             |
 | `GET /api/admin/shops/:id`                       | Admin registration details and review history                |
+| `DELETE /api/admin/shops/:id`                    | Admin; remove a shop from listings and close new bookings    |
 | `GET /api/admin/shops/:id/documents/:documentId` | Admin-only private registration PDF                          |
 | `POST /api/admin/shops/:id/decision`             | Admin; decision approved/rejected, reason, submissionVersion |
 | `PATCH /api/workspace/operations`                | Approved owner; hours, contact, monoRate, colorRate, open    |

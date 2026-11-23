@@ -35,6 +35,7 @@ export type Shop = {
   estimate: string;
   rating: number;
   open: boolean;
+  deletedAt?: string;
   accent: string;
   monoRate: number;
   colorRate: number;

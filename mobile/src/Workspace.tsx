@@ -85,6 +85,7 @@ export function Workspace({
   const busy = pending !== null;
   const lock = useRef(false);
   const shop = app.workspace;
+  const removed = !!shop?.deletedAt;
   const approved = shop?.registrationStatus === "approved";
   const shopView = approved ? "Shop profile" : "Business registration";
   const view = id
@@ -154,13 +155,15 @@ export function Workspace({
   const registering = view === "Business registration";
   const title = id
     ? "Order " + orderCode(id)
-    : registering
+    : registering && !removed
       ? shop?.registrationStatus === "submitted"
         ? "Registration status"
         : review
           ? "Review registration"
           : "Register your business"
-      : view;
+      : removed && registering
+        ? "Shop profile"
+        : view;
   function go(next: string) {
     setError("");
     setNotice("");
@@ -450,26 +453,38 @@ export function Workspace({
             </Card>
           )}
           {notice ? <SuccessNotice>{notice}</SuccessNotice> : null}
-          {(registering || view === "Shop profile") && form.conflict && (
+          {removed && (
             <Card>
-              <Text accessibilityRole="alert" style={{ color: colors.error }}>
-                Your shop settings changed in another session. Your edits are
-                kept here, but saving is blocked to protect the newer settings.
+              <Text style={s.cardTitle}>Shop removed by PaPrint</Text>
+              <Text style={s.body}>
+                This shop is hidden from customers and closed to new bookings.
+                {approved && " You can still fulfill existing orders."}
               </Text>
-              <Text style={s.small}>
-                Reloading discards your unsaved edits and loads the latest
-                settings.
-              </Text>
-              <Button
-                title="Discard edits and load latest settings"
-                secondary
-                disabled={busy}
-                loading={pending === "reload"}
-                onPress={() => void run("reload", reloadSettings)}
-              />
             </Card>
           )}
-          {(registering || view === "Shop profile") && dirty && (
+          {!removed &&
+            (registering || view === "Shop profile") &&
+            form.conflict && (
+              <Card>
+                <Text accessibilityRole="alert" style={{ color: colors.error }}>
+                  Your shop settings changed in another session. Your edits are
+                  kept here, but saving is blocked to protect the newer
+                  settings.
+                </Text>
+                <Text style={s.small}>
+                  Reloading discards your unsaved edits and loads the latest
+                  settings.
+                </Text>
+                <Button
+                  title="Discard edits and load latest settings"
+                  secondary
+                  disabled={busy}
+                  loading={pending === "reload"}
+                  onPress={() => void run("reload", reloadSettings)}
+                />
+              </Card>
+            )}
+          {!removed && (registering || view === "Shop profile") && dirty && (
             <Text style={s.small}>Unsaved changes</Text>
           )}
           {app.loading && !shop && (
@@ -481,6 +496,11 @@ export function Workspace({
                 ? "Loading order…"
                 : "This order is unavailable in your workspace."}
             </Text>
+          ) : removed && shop && (registering || view === "Shop profile") ? (
+            <Card>
+              <Pair label="Registered name" value={shop.name} />
+              <Pair label="Registered address" value={shop.address} />
+            </Card>
           ) : registering ? (
             <>
               {(!shop ||
@@ -1063,7 +1083,7 @@ export function Workspace({
             </>
           ) : view === "Orders" ? (
             <>
-              {!approved && !app.loading && (
+              {!removed && !approved && !app.loading && (
                 <Card>
                   <Text style={s.body}>
                     {shop?.registrationStatus === "submitted"

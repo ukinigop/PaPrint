@@ -24,7 +24,7 @@ import { AppearanceSettings } from "./AppearanceSettings";
 import { LocationReviews } from "./LocationReviews";
 import { shopMapUrl, shopHours } from "./shopDiscovery";
 
-const filters = ["submitted", "approved", "rejected"] as const;
+const filters = ["submitted", "approved", "rejected", "draft"] as const;
 type RegistrationFilter = (typeof filters)[number];
 
 function RegistrationDocument({
@@ -78,10 +78,12 @@ function Registrations({
   filter,
   id,
   wide,
+  onDeleted,
 }: {
   filter: RegistrationFilter;
   id: string;
   wide: boolean;
+  onDeleted: (name: string) => void;
 }) {
   const s = useStyles();
   const { colors } = useAppearance();
@@ -94,6 +96,7 @@ function Registrations({
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const lock = useRef(false);
   const generation = useRef(0);
   const showList = wide || !id;
@@ -163,6 +166,28 @@ function Registrations({
       if (!current()) return;
       if ((e as { status?: number }).status === 409) await load();
       setError(e instanceof Error ? e.message : "Couldn’t save this decision.");
+    } finally {
+      lock.current = false;
+      setAction("");
+    }
+  }
+
+  async function deleteShop() {
+    if (lock.current || !selected) return;
+    lock.current = true;
+    setAction("delete");
+    setError("");
+    const current = api.captureSession();
+    try {
+      await api.request<{ ok: true }>("/admin/shops/" + selected._id, {
+        method: "DELETE",
+      });
+      if (current()) onDeleted(selected.name);
+    } catch (e) {
+      if (!current()) return;
+      if ((e as { status?: number }).status === 404) onDeleted(selected.name);
+      else
+        setError(e instanceof Error ? e.message : "Couldn’t delete this shop.");
     } finally {
       lock.current = false;
       setAction("");
@@ -426,6 +451,40 @@ function Registrations({
                       ))}
                   </>
                 )}
+                <View style={s.rule} />
+                {confirmDelete ? (
+                  <>
+                    <Text
+                      accessibilityRole="header"
+                      style={[s.cardTitle, { color: colors.error }]}
+                    >
+                      Delete {selected.name}?
+                    </Text>
+                    <Text style={s.body}>
+                      Customers will no longer see this shop or book new orders.
+                      The owner can still fulfill existing orders.
+                    </Text>
+                    <Button
+                      title="Confirm deletion"
+                      loading={action === "delete"}
+                      disabled={!!action || loading}
+                      onPress={() => void deleteShop()}
+                    />
+                    <Button
+                      title="Keep shop"
+                      secondary
+                      disabled={!!action}
+                      onPress={() => setConfirmDelete(false)}
+                    />
+                  </>
+                ) : (
+                  <Button
+                    title="Delete shop"
+                    secondary
+                    disabled={!!action || loading}
+                    onPress={() => setConfirmDelete(true)}
+                  />
+                )}
               </Card>
             )}
             {!wide && loading && (
@@ -451,10 +510,10 @@ export function Admin({ id, status }: { id: string; status?: string }) {
   const wide = useWindowDimensions().width >= 960;
   const { view } = useLocalSearchParams<{ view?: string }>();
   const locations = view === "locations";
-  const filter =
-    status === "approved" || status === "rejected" ? status : "submitted";
+  const filter = filters.find((value) => value === status) ?? "submitted";
   const detailOnly = !wide && !!id && !locations;
   const [showAppearance, setShowAppearance] = useState(false);
+  const [deletedShop, setDeletedShop] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const logoutLock = useRef(false);
@@ -531,6 +590,9 @@ export function Admin({ id, status }: { id: string; status?: string }) {
               {logoutError}
             </Text>
           )}
+          {!!deletedShop && !id && !locations && (
+            <SuccessNotice>{deletedShop} was deleted.</SuccessNotice>
+          )}
           {!detailOnly && (
             <>
               <Text accessibilityRole="header" style={s.heading}>
@@ -596,6 +658,10 @@ export function Admin({ id, status }: { id: string; status?: string }) {
               filter={filter}
               id={id}
               wide={wide}
+              onDeleted={(name) => {
+                setDeletedShop(name);
+                router.setParams({ id: undefined, status: filter });
+              }}
             />
           )}
         </ScrollView>

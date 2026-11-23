@@ -153,6 +153,7 @@ export function createApp({
   );
   app.get("/api/shops", auth, async (req, res) => {
     const shops = await Shop.find({
+      deletedAt: null,
       $or: [
         { registrationStatus: "approved" },
         { registrationStatus: { $exists: false } },
@@ -285,7 +286,8 @@ export function createApp({
       throw fail(400, "Check your shop, files, and printing settings.");
     const data = parsed.data;
     const shop = await Shop.findById(data.shopId);
-    if (!shop) throw fail(404, "Shop not found.");
+    if (!shop || shop.deletedAt)
+      throw fail(404, "This shop is no longer available.");
     if (shop.registrationStatus !== "approved")
       throw fail(409, "This shop is not accepting orders yet.");
     if (data.paymentMethod === "gcash")
@@ -327,6 +329,8 @@ export function createApp({
         amount,
         pages,
       });
+    if (!(await Shop.exists({ _id: shop.id, deletedAt: null })))
+      throw fail(404, "This shop is no longer available.");
     try {
       const order = await Order.create({
         customer: req.user.id,
